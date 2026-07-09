@@ -7,13 +7,23 @@ import seaborn as sns
 
 # Cargar la base de datos:
 os.chdir(r"/Volumes/ADATA HD330/Maestría Economía Aplicada UBA/Taller de programación/Trabajos prácticos/TP1 (preliminar)")
+os.chdir(r"C:\Users\gmpas\OneDrive\Escritorio\Seminario Programación\TP1")
 
 print(os.getcwd())
 
 pd.set_option("display.float_format", "{:,.00f}".format)
 
+"""
+(*) El trabajo se desarrolló de forma conjunta, las ediciones de las 
+parte 1 y 2 aparecen con el users de Luciano Altamarano dado 
+que él fue quien creó el repositorio
+
+parte 1-2 --> Gonzalo Pasiche
+parte 3 --> Luciano Altamirano
+"""
+
 #%% PARTE 1
-#%% 1. Carga de datos
+#%% 1.1 Carga de datos
 
 "(I) Carga de datos en formato excel:"
 # variables = ["CODUSU", "NRO_HOGAR", "ANO4", "TRIMESTRE", "PONDERA", 
@@ -36,7 +46,7 @@ la bd"
 bd_24 = pd.read_parquet("bd_24.parquet")
 bd_25 = pd.read_parquet("bd_25.parquet")
 
-#%% 2. Corrección de valores sin sentido
+#%% 1.2 Corrección de valores sin sentido
 
 "(I) Ingresos"
 "Los -9 se tratan en la EPH como NaN"
@@ -49,7 +59,7 @@ bd_24["P47T"] = bd_24["P47T"].replace(-9, np.nan)
 bd_25["P21"] = bd_25["P21"].replace(-9,np.nan)
 bd_25["P47T"] = bd_25["P47T"].replace(-9,np.nan)
 
-"(II) Edad - CH06 "
+"(II) Edad - CH06"
 """
 En la EPH (-1) es consignada para las no respuestas, 
 se reemplazaran por NaN"
@@ -66,7 +76,7 @@ bd_25["CH06"] = bd_25["CH06"].replace(-1, np.nan)
 bd_24[["PONDERA"]].describe()
 bd_25[["PONDERA"]].describe()
 
-#%% 3. Union de bases de datos
+#%% 1.3. Union de bases de datos
 """
 Luego de la revisión se unirán ambas bases de cada año
 la cual se llamará como bd
@@ -83,21 +93,21 @@ viviendas_con_menor = bd[
 bd["dummy_menor5"] = bd["CODUSU"].isin(viviendas_con_menor).astype(int)
 print(bd["dummy_menor5"].value_counts())
 
-#%% 4. Variable ESTADO y guardar bases (respondieron - norespondieron)
+#%% 1.4 Variable ESTADO y guardar bases (respondieron - norespondieron)
 
 bd["ESTADO"].value_counts(normalize=True)*100
 
 respondieron = bd[bd["ESTADO"] != 0]
 norespondieron = bd[bd["ESTADO"] == 0]
 
-#%% 5. Creación de base ocupados
+#%% 1.5. Creación de base ocupados
 
 ocupados = respondieron[respondieron["ESTADO"] == 1]
 
 ocupados["ESTADO"].describe()
 
 
-#%% 6. Creación de variables dicotómicas
+#%% 1.6 Creación de variables dicotómicas
 
 """
 Se crearán las siguientes dicotómicas, con sus
@@ -109,7 +119,7 @@ SECTOR--> sector_2 (1=Formal ; 2=Informal) , lo otro lo paso a NaN
 NIVEL_ED --> nivel_ed2 (1=Basico (!5 y 6) ; 2 = Superior)
 CAT_OCUP --> cat_ocup2 (1= No asalariado (1,2 ,4) ; 2=Asalarioado (3))
 ESTADO --> ya todo es como 1 (OCUPADO)
-CH06 --> años cumplidos
+CH06 --> años cumplidos (continua)
 CH08 --> cobertura_med (1=cobertura ; 2= no_cobertura)
 """
 
@@ -195,7 +205,7 @@ respondieron = respondieron.rename(columns={
 })
 
 
-#%% 7. Nivel de ingresos (pesos 2024 a pesos 2025)
+#%% 1.7 Nivel de ingresos (pesos 2024 a pesos 2025)
 
 """
 El valor de inflacion se sacó del informe del INDEC 
@@ -209,7 +219,7 @@ ocupados.loc[ocupados["ANO4"] == 2024, "P47T"] = ocupados.loc[ocupados["ANO4"] =
 
 print(ocupados.groupby("ANO4")[["P21", "P47T"]].mean().round(0))
 
-#%% 8. Renombre de variables (respondieron y ocupados)
+#%% 1.8 Renombre de variables (respondieron y ocupados)
 
 renombres = {
     "CODUSU":     "cod_vivienda",
@@ -247,13 +257,12 @@ ser verifica si existen duplicados
 print(ocupados.columns.duplicated().sum())
 print(ocupados.columns[ocupados.columns.duplicated()].tolist())
 
-
 print(respondieron.columns.duplicated().sum())
 print(respondieron.columns[respondieron.columns.duplicated()].tolist())
 
 
 
-#%% 9. Heatmap 
+#%% 1.9 Heatmap 
 
 variables = list(renombres.values()) + ["sexo", "estado_civil", "cobertura_med"]
 
@@ -344,7 +353,7 @@ CH06 --> años cumplidos
 CH08 --> cobertura_med (1=cobertura ; 2= no_cobertura)
 """
 
-#%% 1.1 Matriz de correlaciones
+#%% 2.1 Matriz de correlaciones
 
 """
 Este gráfico sólo servirá para verificar la inoperancia de la
@@ -392,7 +401,7 @@ for año in [2024, 2025]:
     plt.tight_layout()
     plt.show()
 
-#%% 1.2 Matriz de correlaciones (con variables dicotómicas):
+#%% 2.2 Matriz de correlaciones (con variables dicotómicas):
 # Convertir temporalmente las variables de texto a números solo para la correlación.
 ocupados_num = ocupados.copy()
 
@@ -439,9 +448,9 @@ for año in [2024, 2025]:
     plt.show()
 
 
-#%% 2. Tablas descriptivas
+#%% 2.1 Tablas descriptivas
 
-#%% 2.1 Etiquetado de variables
+#%% 2.1.1 Etiquetado de variables
 
 ocupados["region"].value_counts()
 
@@ -479,7 +488,6 @@ ocupados["tam_estab_agrup"] = ocupados["tam_estab_agrup"].map({
 })
 
 print(ocupados["tam_estab_agrup"].value_counts())
-
 
 
 "tipo_empleo"
@@ -565,6 +573,58 @@ ocupados["tam_estab"] = ocupados["tam_estab"].replace(99, np.nan)
 
 "cant_ocupaciones_ad"
 ocupados["cant_ocupaciones_ad"] = ocupados["cant_ocupaciones_ad"].replace(9, np.nan)
+#%% 2.1.2 Tablas descriptivas
+
+"""
+(*) descuento jubilatorio 
+(*) comprobante_sal
+(*) alcance_recibo 
+(*) parte_sueldo
+
+--> solo tiene si eres obrero o empleado (asalariado)"
+
+"""
+
+var_continuas = ["edad", "ingreso_ppal", "ingreso_total", 
+                 "cant_ocupaciones_ad", "tam_estab"]
+
+var_categoricas = ["sexo", "estado_civil", "cobertura_med", "nivel_ed", "cat_ocup",
+                   "desc_jubilatorio", "tam_estab_agrup", "tipo_empleo", "tipo_sector",
+                   "region", "comprobante_sal", "alcance_recibo", "parte_sueldo"]
+
+percentiles = [0.01, 0.25, 0.50, 0.75, 0.99]
+
+# Tabla continuas
+tabla_cont = ocupados[var_continuas].describe(percentiles=percentiles).T
+tabla_cont = tabla_cont.rename(columns={
+    "count": "N", "mean": "Promedio", "std": "Desvio Est.",
+    "min": "Min", "1%": "P1", "25%": "P25", "50%": "P50",
+    "75%": "P75", "99%": "P99", "max": "Max"
+})
+tabla_cont = tabla_cont[["N", "Promedio", "Desvio Est.", "Min", "P1", "P25", "P50", "P75", "P99", "Max"]].round(2)
+
+# Tabla categóricas
+lista_freq = []
+for var in var_categoricas:
+    freq = ocupados[var].value_counts()
+    pct = ocupados[var].value_counts(normalize=True).mul(100).round(2)
+    nulos = ocupados[var].isnull().sum()
+    for val in freq.index:
+        lista_freq.append({
+            "Variable": var,
+            "Valor": val,
+            "Frecuencia": freq[val],
+            "Porcentaje": pct[val],
+            "NaN": nulos
+        })
+tabla_cat = pd.DataFrame(lista_freq)
+
+# Guardar
+with pd.ExcelWriter("tabla_descriptiva_total.xlsx") as writer:
+    tabla_cont.to_excel(writer, sheet_name="Continuas")
+    tabla_cat.to_excel(writer, sheet_name="Categoricas", index=False)
+
+print("Guardada: tabla_descriptiva_total.xlsx")
 
 #%% PARTE 3
 
