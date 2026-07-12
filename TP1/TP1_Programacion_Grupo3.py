@@ -657,17 +657,6 @@ tabla_pond_2024 = pd.crosstab(
     aggfunc = "sum"
 )
 tabla_pond_pct_2024 = (tabla_pond_2024.div(tabla_pond_2024.sum(axis = 0), axis = 1) * 100)
-print(tabla_pond_pct_2024.map(lambda x: f"{x:.2f}"))
-
-"3.2.2 EDITADO"
-# 3.2.2. Tabla de frecuencias relativas para el año 2024:
-tabla_pond_2024 = pd.crosstab(
-    ocupados_24["informal"],
-    ocupados_24["sexo"],
-    values = ocupados_24["ponderador"],
-    aggfunc = "sum"
-)
-tabla_pond_pct_2024 = (tabla_pond_2024.div(tabla_pond_2024.sum(axis = 0), axis = 1) * 100)
 print(tabla_pond_pct_2024.round(2))
 
 
@@ -684,17 +673,6 @@ tabla_2025 = pd.crosstab(
 print(tabla_2025)
 
 # 3.2.4. Tabla de frecuencias relativas para el año 2025:
-tabla_pond_2025 = pd.crosstab(
-    ocupados_25["informal"],
-    ocupados_25["sexo"],
-    values = ocupados_25["ponderador"],
-    aggfunc = "sum"
-)
-tabla_pond_pct_2025 = (tabla_pond_2025.div(tabla_pond_2025.sum(axis = 0), axis = 1) * 100)
-print(tabla_pond_pct_2025.map(lambda x: f"{x:.2f}"))
-
-
-"3.2.4 EDITADO"
 tabla_pond_2025 = pd.crosstab(
     ocupados_25["informal"],
     ocupados_25["sexo"],
