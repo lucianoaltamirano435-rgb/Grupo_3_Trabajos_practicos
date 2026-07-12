@@ -6,7 +6,7 @@ import os
 import seaborn as sns
 from sklearn.neighbors import KernelDensity
 
-# Cargar la base de datos:
+# Seteo de directorio ** CAMBIAR **:
 os.chdir(r"/Volumes/ADATA HD330/Maestría Economía Aplicada UBA/Taller de programación/Trabajos prácticos/TP1 (preliminar)")
 os.chdir(r"C:\Users\gmpas\OneDrive\Escritorio\Seminario Programación\TP1")
 
@@ -16,7 +16,7 @@ pd.set_option("display.float_format", "{:,.00f}".format)
 
 """
 (*) El trabajo se desarrolló de forma conjunta, las ediciones de las 
-parte 1 y 2 aparecen con el users de Luciano Altamarano dado 
+parte 1 y 2 aparecen con el users de Luciano Altamirano dado 
 que él fue quien creó el repositorio
 
 parte 1-2 --> Gonzalo Pasiche
@@ -106,7 +106,7 @@ norespondieron = bd[bd["ESTADO"] == 0]
 ocupados = respondieron[respondieron["ESTADO"] == 1]
 
 ocupados["ESTADO"].describe()
-
+ 
 
 #%% 1.6 Creación de variables dicotómicas
 
@@ -340,9 +340,10 @@ plt.show()
 
 #%% PARTE 2
 
+#%% 2.1 Matriz de correlaciones
 """
 El analisis de correlación se hará usando tanto 
-variables discretas como dicotómicas creadas:
+variables dicotómicas como continuas creadas:
 
 CH04 --> sexo (1=Masculino ; 2=Femenino)
 CH07 --> estado_civil (1=Pareja (<3) ; 2=Sin pareja (>=3))
@@ -353,13 +354,11 @@ ESTADO --> ya todo es como 1 (OCUPADO)
 CH06 --> años cumplidos
 CH08 --> cobertura_med (1=cobertura ; 2= no_cobertura)
 """
-
-#%% 2.1 Matriz de correlaciones
-
+#%% 2.1.1 Matriz de correlaciones (discretas con más de 1 nivel)
 """
 Este gráfico sólo servirá para verificar la inoperancia de la
-correlación de spearmen cuando tenermos más de 1 nivel en variables
-categóricas, por ello en 1.2 se muestra la matriz para 
+correlación de spearman cuando tenermos más de 1 nivel en variables
+categóricas, por ello en 2.1.2 se muestra la matriz para 
 las dicotómicas creadas
 """
 
@@ -402,7 +401,7 @@ for año in [2024, 2025]:
     plt.tight_layout()
     plt.show()
 
-#%% 2.2 Matriz de correlaciones (con variables dicotómicas):
+#%% 2.1.2 Matriz de correlaciones (con variables dicotómicas):
 # Convertir temporalmente las variables de texto a números solo para la correlación.
 ocupados_num = ocupados.copy()
 
@@ -449,9 +448,9 @@ for año in [2024, 2025]:
     plt.show()
 
 
-#%% 2.1 Tablas descriptivas
+#%% 2.2 Tablas descriptivas
 
-#%% 2.1.1 Etiquetado de variables
+#%% 2.2.1 Etiquetado de variables
 
 ocupados["region"].value_counts()
 
@@ -574,7 +573,7 @@ ocupados["tam_estab"] = ocupados["tam_estab"].replace(99, np.nan)
 
 "cant_ocupaciones_ad"
 ocupados["cant_ocupaciones_ad"] = ocupados["cant_ocupaciones_ad"].replace(9, np.nan)
-#%% 2.1.2 Tablas descriptivas
+#%% 2.2.2 Tablas descriptivas
 
 """
 (*) descuento jubilatorio 
