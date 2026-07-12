@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import os
 import seaborn as sns
+from sklearn.neighbors import KernelDensity
 
 # Cargar la base de datos:
 os.chdir(r"/Volumes/ADATA HD330/Maestría Economía Aplicada UBA/Taller de programación/Trabajos prácticos/TP1 (preliminar)")
@@ -637,7 +638,7 @@ ocupados["informal"] = (
 
 #%% 3.2. Construcción de la tabla de doble entrada:
     
-#%% 3.2.1. Tabla de frecuencias absolutas para el año 2024:
+# 3.2.1. Tabla de frecuencias absolutas para el año 2024:
 ocupados_24 = ocupados[ocupados["año"] == 2024]
 tabla_2024 = pd.crosstab(
     ocupados_24["informal"],
@@ -649,7 +650,7 @@ tabla_2024 = pd.crosstab(
 )
 print(tabla_2024)
 
-#%% 3.2.2. Tabla de frecuencias relativas para el año 2024:
+# 3.2.2. Tabla de frecuencias relativas para el año 2024:
 tabla_pond_2024 = pd.crosstab(
     ocupados_24["informal"],
     ocupados_24["sexo"],
@@ -659,7 +660,7 @@ tabla_pond_2024 = pd.crosstab(
 tabla_pond_pct_2024 = (tabla_pond_2024.div(tabla_pond_2024.sum(axis = 0), axis = 1) * 100)
 print(tabla_pond_pct_2024.map(lambda x: f"{x:.2f}"))
 
-#%% 3.2.3. Tabla de frecuencias absolutas para el año 2025:
+# 3.2.3. Tabla de frecuencias absolutas para el año 2025:
 ocupados_25 = ocupados[ocupados["año"] == 2025]
 tabla_2025 = pd.crosstab(
     ocupados_25["informal"],
@@ -671,7 +672,7 @@ tabla_2025 = pd.crosstab(
 )
 print(tabla_2025)
 
-#%% 3.2.4. Tabla de frecuencias relativas para el año 2025:
+# 3.2.4. Tabla de frecuencias relativas para el año 2025:
 tabla_pond_2025 = pd.crosstab(
     ocupados_25["informal"],
     ocupados_25["sexo"],
@@ -712,44 +713,199 @@ plt.subplots_adjust(bottom=0.2)
 plt.savefig("grafico_informalidad_menor5.png", dpi=300, bbox_inches="tight")
 plt.show()
 
-#%% 3.4. Gráfico de distribución por sexo:
-ocupados['ln_ingreso_ppal'] = np.log(ocupados['ingreso_ppal'])
+#%% 3.4. Figura de distribución con mejor kernel para formales e informales:
 sns.set(style = "whitegrid")
-fig, axs = plt.subplots(2, 2, figsize = (12, 8))
 
-# (a) Histograma de ingreso_ppal (P21):
-sns.histplot(data = ocupados, x = "ln_ingreso_ppal", hue = "informal",
-             element = "step", stat = "density", common_norm = False, ax = axs[0, 0])
-axs[0, 0].set_title("Histograma de ingreso principal (P21)")
-axs[0, 0].set_xlabel("Ingreso ocupación principal (ln)")
+# Desviaciones estándar a considerar para el trimming:
+desv_trim = 3
+
+# === EXPLORACIÓN PREVIA (no forma parte de la figura final) ===
+
+# 3.5.1. Iteración por kernels y bandwidths para ingreso_ppal (Formales):
+ingreso_ppal_f_sd = ocupados["ingreso_ppal"][ocupados["informal"] == "Formal"].std()
+ingreso_ppal_f_me = ocupados["ingreso_ppal"][ocupados["informal"] == "Formal"].mean()
+ingresos_ppal_f_trim = ocupados["ingreso_ppal"][
+    (ocupados["informal"] == "Formal") &
+    (ocupados["ingreso_ppal"] < (ingreso_ppal_f_me + desv_trim * ingreso_ppal_f_sd))
+]
+X_f_plot       = np.linspace(min(ingresos_ppal_f_trim), max(ingresos_ppal_f_trim), 1000).reshape(-1, 1)
+ingreso_ppal_f = ingresos_ppal_f_trim.dropna().values.reshape(-1, 1)
+bandwidth_f    = 1.06 * ingreso_ppal_f_sd * len(ingreso_ppal_f) ** (-1 / 5)
+
+# Gráfico exploratorio: kernels (formales - ingreso_ppal):
+kernels = ["gaussian", "tophat", "epanechnikov", "exponential", "linear", "cosine"]
+plt.figure(figsize = (10, 6))
+plt.hist(ingreso_ppal_f, bins = 20, density = True, alpha = 0.3, color = "blue", label = "Histograma")
+for k in kernels:
+    kde           = KernelDensity(kernel = k, bandwidth = bandwidth_f).fit(ingreso_ppal_f)
+    densities     = np.exp(kde.score_samples(X_f_plot))
+    plt.plot(X_f_plot[:, 0], densities, label = f"{k.capitalize()} Kernel")
+plt.legend()
+plt.title("Exploración kernels - Ingreso principal (Formales)")
+plt.show()
+
+# Gráfico exploratorio: bandwidths (formales - ingreso_ppal):
+bandwidths = [125000, 225000, 325000, 425000, 625000, 725000]
+plt.figure(figsize=(10, 6))
+plt.hist(ingreso_ppal_f, bins = 20, density = True, alpha = 0.5, color = "blue", label = "Histograma")
+for bw in bandwidths:
+    kde       = KernelDensity(kernel = "gaussian", bandwidth = bw).fit(ingreso_ppal_f)
+    densities = np.exp(kde.score_samples(X_f_plot))
+    plt.plot(X_f_plot[:, 0], densities, label = f"Bandwidth={bw}")
+plt.legend()
+plt.title("Exploración bandwidths - Ingreso principal (Formales)")
+plt.show()
+
+# 3.5.2. Iteración por kernels y bandwidths para ingreso_ppal (Informales):
+ingreso_ppal_i_sd = ocupados["ingreso_ppal"][ocupados["informal"] == "Informal"].std()
+ingreso_ppal_i_me = ocupados["ingreso_ppal"][ocupados["informal"] == "Informal"].mean()
+ingresos_ppal_i_trim = ocupados["ingreso_ppal"][
+    (ocupados["informal"] == "Informal") &
+    (ocupados["ingreso_ppal"] < (ingreso_ppal_i_me + desv_trim * ingreso_ppal_i_sd))
+]
+X_i_plot       = np.linspace(min(ingresos_ppal_i_trim), max(ingresos_ppal_i_trim), 1000).reshape(-1, 1)
+ingreso_ppal_i = ingresos_ppal_i_trim.dropna().values.reshape(-1, 1)
+bandwidth_i    = 1.06 * ingreso_ppal_i_sd * len(ingreso_ppal_i) ** (-1 / 5)
+
+# Gráfico exploratorio: kernels (informales - ingreso_ppal):
+plt.figure(figsize=(10, 6))
+plt.hist(ingreso_ppal_i, bins = 20, density = True, alpha = 0.3, color = "orange", label = "Histograma")
+for k in kernels:
+    kde       = KernelDensity(kernel = k, bandwidth = bandwidth_i).fit(ingreso_ppal_i)
+    densities = np.exp(kde.score_samples(X_i_plot))
+    plt.plot(X_i_plot[:, 0], densities, label=f"{k.capitalize()} Kernel")
+plt.legend()
+plt.title("Exploración kernels - Ingreso principal (Informales)")
+plt.show()
+
+# Gráfico exploratorio: bandwidths (informales - ingreso_ppal):
+plt.figure(figsize=(10, 6))
+plt.hist(ingreso_ppal_i, bins = 20, density = True, alpha = 0.5, color = "orange", label = "Histograma")
+for bw in bandwidths:
+    kde       = KernelDensity(kernel = "gaussian", bandwidth = bw).fit(ingreso_ppal_i)
+    densities = np.exp(kde.score_samples(X_i_plot))
+    plt.plot(X_i_plot[:, 0], densities, label = f"Bandwidth={bw}")
+plt.legend()
+plt.title("Exploración bandwidths - Ingreso principal (Informales)")
+plt.show()
+
+# 3.5.3. Iteración por kernels y bandwidths para ingreso_total (Formales):
+ingreso_total_f_sd = ocupados["ingreso_total"][ocupados["informal"] == "Formal"].std()
+ingreso_total_f_me = ocupados["ingreso_total"][ocupados["informal"] == "Formal"].mean()
+ingresos_total_f_trim = ocupados["ingreso_total"][
+    (ocupados["informal"] == "Formal") &
+    (ocupados["ingreso_total"] < (ingreso_total_f_me + desv_trim * ingreso_total_f_sd))
+]
+X_tf_plot        = np.linspace(min(ingresos_total_f_trim), max(ingresos_total_f_trim), 1000).reshape(-1, 1)
+ingreso_total_f  = ingresos_total_f_trim.dropna().values.reshape(-1, 1)
+bandwidth_tf     = 1.06 * ingreso_total_f_sd * len(ingreso_total_f) ** (-1 / 5)
+
+# Gráfico exploratorio: kernels (formales - ingreso_total):
+plt.figure(figsize = (10, 6))
+plt.hist(ingreso_total_f, bins = 20, density = True, alpha = 0.3, color = "blue", label = "Histograma")
+for k in kernels:
+    kde       = KernelDensity(kernel=k, bandwidth=bandwidth_tf).fit(ingreso_total_f)
+    densities = np.exp(kde.score_samples(X_tf_plot))
+    plt.plot(X_tf_plot[:, 0], densities, label = f"{k.capitalize()} Kernel")
+plt.legend()
+plt.title("Exploración kernels - Ingreso total (Formales)")
+plt.show()
+
+# Gráfico exploratorio: bandwidths (formales - ingreso_total):
+plt.figure(figsize = (10, 6))
+plt.hist(ingreso_total_f, bins = 20, density = True, alpha = 0.5, color = "blue", label = "Histograma")
+for bw in bandwidths:
+    kde       = KernelDensity(kernel = "gaussian", bandwidth = bw).fit(ingreso_total_f)
+    densities = np.exp(kde.score_samples(X_tf_plot))
+    plt.plot(X_tf_plot[:, 0], densities, label = f"Bandwidth={bw}")
+plt.legend()
+plt.title("Exploración bandwidths - Ingreso total (Formales)")
+plt.show()
+
+# 3.5.4. Iteración por kernels y bandwidths para ingreso_total (Informales):
+ingreso_total_i_sd = ocupados["ingreso_total"][ocupados["informal"] == "Informal"].std()
+ingreso_total_i_me = ocupados["ingreso_total"][ocupados["informal"] == "Informal"].mean()
+ingresos_total_i_trim = ocupados["ingreso_total"][
+    (ocupados["informal"] == "Informal") &
+    (ocupados["ingreso_total"] < (ingreso_total_i_me + desv_trim * ingreso_total_i_sd))
+]
+X_ti_plot        = np.linspace(min(ingresos_total_i_trim), max(ingresos_total_i_trim), 1000).reshape(-1, 1)
+ingreso_total_i  = ingresos_total_i_trim.dropna().values.reshape(-1, 1)
+bandwidth_ti     = 1.06 * ingreso_total_i_sd * len(ingreso_total_i) ** (-1 / 5)
+
+# Gráfico exploratorio: kernels (informales - ingreso_total):
+plt.figure(figsize = (10, 6))
+plt.hist(ingreso_total_i, bins = 20, density = True, alpha = 0.3, color = "orange", label = "Histograma")
+for k in kernels:
+    kde       = KernelDensity(kernel=k, bandwidth=bandwidth_ti).fit(ingreso_total_i)
+    densities = np.exp(kde.score_samples(X_ti_plot))
+    plt.plot(X_ti_plot[:, 0], densities, label = f"{k.capitalize()} Kernel")
+plt.legend()
+plt.title("Exploración kernels - Ingreso total (Informales)")
+plt.show()
+
+# Gráfico exploratorio: bandwidths (informales - ingreso_total):
+plt.figure(figsize = (10, 6))
+plt.hist(ingreso_total_i, bins = 20, density = True, alpha = 0.5, color = "orange", label = "Histograma")
+for bw in bandwidths:
+    kde       = KernelDensity(kernel = "gaussian", bandwidth = bw).fit(ingreso_total_i)
+    densities = np.exp(kde.score_samples(X_ti_plot))
+    plt.plot(X_ti_plot[:, 0], densities, label = f"Bandwidth={bw}")
+plt.legend()
+plt.title("Exploración bandwidths - Ingreso total (Informales)")
+plt.show()
+
+# === FIGURA FINAL: 4 paneles con el mejor kernel y bandwidth ===
+# Ajustar 'best_bw_*' según los resultados de la exploración anterior.
+
+best_bw_ppal_f  = bandwidth_f
+best_bw_ppal_i  = bandwidth_i
+best_bw_total_f = bandwidth_tf
+best_bw_total_i = bandwidth_ti
+
+fig, axs = plt.subplots(2, 2, figsize=(12, 8))
+
+# Panel (a): Ingreso principal - Formales
+axs[0, 0].hist(ingreso_ppal_f, bins = 20, density = True, alpha = 0.3, color = "blue", label = "Histograma")
+kde       = KernelDensity(kernel = "gaussian", bandwidth = best_bw_ppal_f).fit(ingreso_ppal_f)
+densities = np.exp(kde.score_samples(X_f_plot))
+axs[0, 0].plot(X_f_plot[:, 0], densities, color = "blue", label = "Gaussian Kernel")
+axs[0, 0].set_title("Ingreso principal - Formales")
+axs[0, 0].set_xlabel("Ingreso ocupación principal (en millones de pesos)")
 axs[0, 0].set_ylabel("Densidad")
+axs[0, 0].legend()
 
-# (b) Kernel de ingreso_ppal (P21):
-sns.kdeplot(data = ocupados, x = "ln_ingreso_ppal", hue = "informal",
-            common_norm = False, ax = axs[0, 1])
-axs[0, 1].set_title("Distribución de kernel de ingreso principal (P21)")
-axs[0, 1].set_xlabel("Ingreso ocupación principal (ln)")
+# Panel (b): Ingreso principal - Informales
+axs[0, 1].hist(ingreso_ppal_i, bins = 20, density = True, alpha = 0.3, color = "orange", label = "Histograma")
+kde       = KernelDensity(kernel="gaussian", bandwidth=best_bw_ppal_i).fit(ingreso_ppal_i)
+densities = np.exp(kde.score_samples(X_i_plot))
+axs[0, 1].plot(X_i_plot[:, 0], densities, color = "orange", label = "Gaussian Kernel")
+axs[0, 1].set_title("Ingreso principal - Informales")
+axs[0, 1].set_xlabel("Ingreso ocupación principal (en millones de pesos)")
 axs[0, 1].set_ylabel("Densidad")
+axs[0, 1].legend()
 
-# (c) Histograma de ingreso_total (P47T):
-ocupados['ln_ingreso_total'] = np.log(ocupados['ingreso_total'])
-sns.histplot(data = ocupados, x = "ln_ingreso_total", hue = "informal",
-             element = "step", stat = "density", common_norm = False, ax = axs[1, 0])
-axs[1, 0].set_title("Histograma de ingreso total (P47T)")
-axs[1, 0].set_xlabel("Ingreso total individual (ln)")
+# Panel (c): Ingreso total - Formales
+axs[1, 0].hist(ingreso_total_f, bins = 20, density = True, alpha = 0.3, color = "blue", label = "Histograma")
+kde       = KernelDensity(kernel = "gaussian", bandwidth = best_bw_total_f).fit(ingreso_total_f)
+densities = np.exp(kde.score_samples(X_tf_plot))
+axs[1, 0].plot(X_tf_plot[:, 0], densities, color = "blue", label = "Gaussian Kernel")
+axs[1, 0].set_title("Ingreso total - Formales")
+axs[1, 0].set_xlabel("Ingreso total individual (en millones de pesos)")
 axs[1, 0].set_ylabel("Densidad")
+axs[1, 0].legend()
 
-# (d) Kernel de ingreso_total (P47T):
-sns.kdeplot(data = ocupados, x = "ln_ingreso_total", hue = "informal",
-            common_norm = False, ax = axs[1, 1])
-axs[1, 1].set_title("Distribución de kernel de ingreso total (P47T)")
-axs[1, 1].set_xlabel("Ingreso total individual (ln)")
+# Panel (d): Ingreso total - Informales
+axs[1, 1].hist(ingreso_total_i, bins = 20, density = True, alpha = 0.3, color = "orange", label = "Histograma")
+kde       = KernelDensity(kernel = "gaussian", bandwidth = best_bw_total_i).fit(ingreso_total_i)
+densities = np.exp(kde.score_samples(X_ti_plot))
+axs[1, 1].plot(X_ti_plot[:, 0], densities, color = "orange", label = "Gaussian Kernel")
+axs[1, 1].set_title("Ingreso total - Informales")
+axs[1, 1].set_xlabel("Ingreso total individual (en millones de pesos)")
 axs[1, 1].set_ylabel("Densidad")
+axs[1, 1].legend()
 
-# (e) Quitar el título de la leyenda:
-for ax in axs.flat:
-    ax.get_legend().set_title("")
-    
-# (f) Mostrar la figura:
-fig.tight_layout()
+# Mostrar la figura:
+plt.tight_layout()
+plt.savefig("figura_kernels_ingresos.png", dpi = 300, bbox_inches = "tight")
 plt.show()
