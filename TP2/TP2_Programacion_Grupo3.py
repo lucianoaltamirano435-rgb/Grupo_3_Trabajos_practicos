@@ -19,6 +19,9 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import os
+from sklearn.preprocessing import StandardScaler
+from sklearn.cluster import KMeans
+from scipy.cluster.hierarchy import dendrogram, linkage
 
 # =============================================================================
 # PARTE I: CREACIÓN DE VARIABLES Y MÁS ESTADÍSTICA DESCRIPTIVA
@@ -27,6 +30,8 @@ import os
 
 # Seteo de directorio
 os.chdir(r"/Volumes/ADATA HD330/Maestría Economía Aplicada UBA/Taller de programación/Trabajos prácticos/Grupo_3_Trabajos_practicos/TP2")
+os.chdir(r"C:\Users\gmpas\OneDrive\Escritorio\Seminario Programación\TP2")
+
 print(os.getcwd())
 
 pd.set_option("display.float_format", "{:,.2f}".format)
@@ -346,13 +351,108 @@ for año in [2024, 2025]:
 # =============================================================================
 
 
-
-
 # =============================================================================
 # PARTE II.B: ANÁLISIS CLÚSTER
 # (Gonzalo Pasiche)
 # =============================================================================
 
+ocupados.info()
+
+ocupados[["edad", "edad2", "educ", "horastrabj", "nhogar", "ingreso_ppal", "tam_estab_raw"]].info()
+
+#%%---- 1. Clúster k medias-----
+"1.1 Variables para entrenar el modelo:"
+variables_cluster = ["edad", "edad2", "educ", "horastrabj",
+                     "nhogar", "ingreso_ppal", "tam_estab_raw"]
+
+for año in [2024, 2025]:
+
+    "1.2 Preparación de los datos (filtro por año y eliminación de faltantes):"
+    datos = ocupados[ocupados["año"] == año].copy()
+    datos = datos.dropna(subset = variables_cluster + ["informal"])
+    X = datos[variables_cluster]
+
+    "1.3 Estandarización de las variables:"
+    scaler = StandardScaler()
+    X_estandarizado = scaler.fit_transform(X)
+
+    "1.4 Entrenamiento del K-means (k = 2, n_init = 20):"
+    kmeans = KMeans(n_clusters = 2, n_init = 20, random_state = 42)
+    datos["cluster"] = kmeans.fit_predict(X_estandarizado)
+
+    "1.5 Gráfico de los resultados (2 variables de las 7):"
+    sns.set_style("white")
+    fig, ax = plt.subplots(figsize = (9, 7))
+    sns.scatterplot(
+        data = datos,
+        x = "edad", y = "ingreso_ppal",
+        hue = "cluster",
+        palette = "Set1",
+        alpha = 0.5,
+        ax = ax
+    )
+    ax.set_title(f"K-means (k = 2) - Ocupados {año}",
+                fontsize = 13, fontweight = "bold", pad = 15)
+    ax.set_xlabel("Edad")
+    ax.set_ylabel("Ingreso ocupación principal")
+    ax.legend(title = "Cluster")
+    plt.tight_layout()
+    plt.savefig(f"kmeans_cluster_{año}.png", dpi = 300, bbox_inches = "tight")
+    plt.show()
+
+    "1.6 Comparación de los clusters con la informalidad real:"
+    tabla = pd.crosstab(datos["cluster"], datos["informal"])
+    print(f"\nComparación cluster vs informalidad - Ocupados {año}")
+    print(tabla)
+
+#%%---- 2. Método del codo (Elbow)-----
+
+"2.1 Cálculo de la inercia para k = 1 hasta k = 40:"
+inercias = []
+rango_k = range(1, 41)
+
+# Usamos los mismos datos estandarizados del último año procesado.
+# Si querés un año puntual, volvé a filtrar y estandarizar acá.
+for k in rango_k:
+    kmeans = KMeans(n_clusters = k, n_init = 20, random_state = 42)
+    kmeans.fit(X_estandarizado)
+    inercias.append(kmeans.inertia_)
+
+"2.2 Gráfico de la curva del codo:"
+sns.set_style("whitegrid")
+fig, ax = plt.subplots(figsize = (10, 6))
+ax.plot(rango_k, inercias, marker = "o", color = "steelblue")
+ax.set_title("Método del codo (Elbow)", fontsize = 13, fontweight = "bold", pad = 15)
+ax.set_xlabel("Número de clusters (k)")
+ax.set_ylabel("Inercia (WCSS)")
+plt.tight_layout()
+plt.savefig("elbow_method.png", dpi = 300, bbox_inches = "tight")
+plt.show()
 
 
+#%%---- 3. Clúster jerárquico-----
+"3.1 Preparación de una muestra (el jerárquico no escala a toda la base):"
+# Tomamos una muestra aleatoria para que el dendrograma sea legible y no sature la memoria.
+muestra = ocupados.dropna(subset = variables_cluster).sample(
+    n = 300, random_state = 42
+)
+X_muestra = muestra[variables_cluster]
 
+"3.2 Estandarización de las variables:"
+scaler = StandardScaler()
+X_muestra_estandarizado = scaler.fit_transform(X_muestra)
+
+"3.3 Cálculo de las uniones jerárquicas (método de Ward):"
+# 'ward' agrupa minimizando la varianza interna de cada cluster.
+enlaces = linkage(X_muestra_estandarizado, method = "ward")
+
+"3.4 Gráfico del dendrograma:"
+fig, ax = plt.subplots(figsize = (14, 7))
+dendrogram(enlaces, ax = ax, no_labels = True, color_threshold = 0)
+ax.set_title("Dendrograma - Clustering jerárquico (Ward)",
+            fontsize = 13, fontweight = "bold", pad = 15)
+ax.set_xlabel("Observaciones (muestra de ocupados)")
+ax.set_ylabel("Distancia (disimilitud)")
+plt.tight_layout()
+plt.savefig("dendrograma.png", dpi = 300, bbox_inches = "tight")
+plt.show()
