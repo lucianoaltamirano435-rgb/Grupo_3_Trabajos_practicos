@@ -1,4 +1,9 @@
 # -*- coding: utf-8 -*-
+"""
+Created on Thu Jul 23 17:05:51 2026
+
+@author: gmpas
+"""
 
 """
 (*) El trabajo se desarrollo de forma conjunta.
@@ -59,7 +64,8 @@ from kmodes.kmodes import KModes
 print("Paquetes cargados correctamente.")
 
 # Seteo de directorio:
-os.chdir(r"C:\Users\gmpas\OneDrive\Escritorio\Seminario Programación\TP2")
+# os.chdir(r"C:\Users\gmpas\OneDrive\Escritorio\Seminario Programación\TP2")
+os.chdir(r"/Volumes/ADATA HD330/Maestría Economía Aplicada UBA/Taller de programación/Trabajos prácticos/Grupo_3_Trabajos_practicos/TP2")
 
 print(os.getcwd())
 
@@ -70,17 +76,661 @@ pd.set_option("display.float_format", "{:,.2f}".format)
 # (Luciano Altamirano)
 # =============================================================================
 
+# %% PARTE I
 
+# %% 0.1 Carga de datos:
+
+# 0.1.1. Definicion de las columnas necesarias para el TP2:
+"""
+Respecto del TP1 se agregan CH12, CH13 y CH14 (necesarias para 'educ') y
+PP3E_TOT y PP3F_TOT (necesarias para 'horastrab').
+"""
+
+columnas_necesarias = [
+    "CODUSU", "NRO_HOGAR", "COMPONENTE", "ANO4", "TRIMESTRE", "PONDERA",
+    "CH03", "CH04", "CH06", "CH07", "CH08",
+    "CH12", "CH13", "CH14",
+    "NIVEL_ED", "ESTADO", "CAT_OCUP", "PP07H", "PP04C", "PP04C99",
+    "EMPLEO", "SECTOR", "PP04D_COD", "P21", "P47T", "REGION",
+    "PP07K", "PP07L", "PP07M", "PP03D", "PP3E_TOT", "PP3F_TOT"
+]
+
+# 0.1.2. Importar la base de datos y transformarla a parquet (una sola vez):
+'''
+bd_24 = pd.read_excel("usu_individual_T424.xlsx", usecols = columnas_necesarias)
+bd_25 = pd.read_excel("usu_individual_T425.xlsx", usecols = columnas_necesarias)
+
+bd_24.to_parquet("bd_24.parquet")
+bd_25.to_parquet("bd_25.parquet")
+'''
+
+# 0.1.3. Cargar los archivos parquet:
+bd_24 = pd.read_parquet("bd_24.parquet")
+bd_25 = pd.read_parquet("bd_25.parquet")
+
+print(bd_24.shape, bd_25.shape)
+
+# %% 0.2 Correccion de valores sin sentido (heredado del TP1):
+
+# 0.2.1. Ingresos - P21 y P47T: -9 se trata como NaN:
+for base in [bd_24, bd_25]:
+    base["P21"]  = base["P21"].replace(-9, np.nan)
+    base["P47T"] = base["P47T"].replace(-9, np.nan)
+
+# 0.2.2. Edad - CH06: -1 se trata como NaN:
+for base in [bd_24, bd_25]:
+    base["CH06"] = base["CH06"].replace(-1, np.nan)
+
+# 0.2.3. Horas trabajadas - PP3E_TOT y PP3F_TOT: 999 (Ns/Nr) se trata como NaN:
+for base in [bd_24, bd_25]:
+    base["PP3E_TOT"] = base["PP3E_TOT"].replace(999, np.nan)
+    base["PP3F_TOT"] = base["PP3F_TOT"].replace(999, np.nan)
+
+# 0.2.4. Tamano del establecimiento - PP04C: 99 (Ns/Nr) se trata como NaN:
+"""
+CORRECCIÓN (i). En la version preliminar del TP2 se usaba PP04C en crudo
+(bajo el nombre 'tam_estab_raw') tanto en la matriz de correlaciones como
+en el PCA y en k-medias. PP04C codifica con 99 la no respuesta, de modo que
+esos casos entraban al analisis como si se tratara del establecimiento mas
+grande posible. Al ser aproximadamente 5.400 observaciones, distorsionaba
+la correlación con informalidad, la dirección de los componentes del PCA y
+la posición de los centroides. Se limpia aca, antes de cualquier cálculo.
+"""
+for base in [bd_24, bd_25]:
+    base["PP04C"] = base["PP04C"].replace(99, np.nan)
+
+# 0.2.5. Cantidad de ocupaciones adicionales - PP03D: 9 (Ns/Nr) se trata como NaN:
+for base in [bd_24, bd_25]:
+    base["PP03D"] = base["PP03D"].replace(9, np.nan)
+
+# %% 0.3 Union de bases de datos:
+bd = pd.concat([bd_24, bd_25], ignore_index = True)
+
+print("Base unificada:", bd.shape)
+print(bd["ANO4"].value_counts())
+
+# %% 0.4 Ajuste de los ingresos por inflacion (pesos de 2024 a pesos de 2025):
+
+"""
+CORRECCION (iii). En el TP1 los ingresos de 2024 se llevaron a pesos de
+2025 multiplicando por 1.314 (variacion del IPC de noviembre 2024 a
+noviembre 2025, INDEC; se toma noviembre por ser el mes central del cuarto
+trimestre). En la versión preliminar del TP2 este paso no estaba, con lo
+cual la descriptiva, la matriz de correlaciones, el PCA y los clústeres
+mezclaban pesos de distinto poder adquisitivo. Como el ingreso es una de
+las variables con mayor varianza, esto desplazaba los centroides y el
+primer componente principal.
+
+El ajuste es ademas la condicion que habilita a poolear ambos anos en la
+Parte II: sin el, agrupar observaciones de 2024 y 2025 en un mismo
+analisis meclaria unidades monetarias distintas.
+
+Se incluye una guarda ('ingresos_ajustados') porque en Spyder es habitual
+reejecutar celdas: sin ella, correr esta celda dos veces aplicaria el
+factor dos veces.
+"""
+
+factor = 1.314   # 31.4% de inflacion entre nov-2024 y nov-2025
+
+if "ingresos_ajustados" not in globals():
+    bd.loc[bd["ANO4"] == 2024, "P21"]  = bd.loc[bd["ANO4"] == 2024, "P21"]  * factor
+    bd.loc[bd["ANO4"] == 2024, "P47T"] = bd.loc[bd["ANO4"] == 2024, "P47T"] * factor
+    ingresos_ajustados = True
+    print("Ingresos de 2024 ajustados por inflacion.")
+else:
+    print("Los ingresos ya habian sido ajustados; no se vuelve a aplicar el factor.")
+
+print(bd.groupby("ANO4")[["P21", "P47T"]].mean().round(0))
+
+# %% 0.5 Variable dummy_menor5 (heredada del TP1):
+
+"""
+Identifica las viviendas con al menos un hijo/a o nieto/a (CH03 = 3 o 5)
+de hasta 5 anos, y luego generaliza el valor a todos los miembros de esa
+vivienda. Se calcula sobre 'bd' y no sobre 'ocupados' porque necesita ver
+a todos los integrantes del hogar, incluidos los menores, que por
+definicion no estan en la base de ocupados.
+"""
+
+viviendas_con_menor = bd[
+    (bd["CH03"].isin([3, 5])) &
+    (bd["CH06"] <= 5)
+]["CODUSU"].unique()
+
+bd["dummy_menor5"] = bd["CODUSU"].isin(viviendas_con_menor).astype(int)
+
+print(bd["dummy_menor5"].value_counts())
+
+# %% 1. Creacion de variables
+
+# %% 1.1 edad2 (edad al cuadrado):
+bd["edad2"] = bd["CH06"] ** 2
+
+print(bd[["CH06", "edad2"]].describe().round(1))
+
+# %% 1.2 educ (anos de educacion formal):
+
+"""
+Se construye a partir de CH12 (nivel mas alto cursado), CH13 (si lo
+finalizo) y CH14 (ultimo ano aprobado, para quienes no lo finalizaron).
+
+Supuestos de duracion de cada nivel (estructura 6+6, coherente con el
+ejemplo de la consigna: Secundario finalizado en "sexto" => educ = 12).
+"""
+
+anos_base_nivel = {
+    0: np.nan,   # Valores no validos
+    1: 0,        # Jardin / preescolar
+    2: 0,        # Primario
+    3: 0,        # EGB
+    4: 6,        # Secundario   (Primario completo previo)
+    5: 9,        # Polimodal    (EGB completo previo)
+    6: 12,       # Terciario    (Secundario / Polimodal completo previo)
+    7: 12,       # Universitario
+    8: 17,       # Posgrado     (Universitario completo previo)
+    9: np.nan    # Educacion especial
+}
+
+duracion_nivel = {
+    0: np.nan,
+    1: 0,
+    2: 6,
+    3: 9,
+    4: 6,
+    5: 3,
+    6: 3,
+    7: 5,
+    8: 2,
+    9: np.nan
+}
+
+bd["_anos_base"] = bd["CH12"].map(anos_base_nivel)
+bd["_duracion"]  = bd["CH12"].map(duracion_nivel)
+
+# CH14: 98 (educacion especial) y 99 (Ns/Nr) se tratan como NaN:
+ch14_limpio = bd["CH14"].replace({98: np.nan, 99: np.nan})
+
+# CH13: 9 (Ns/Nr) se pasa a NaN explicito para que no caiga en el default:
+ch13_limpio = bd["CH13"].replace({9: np.nan})
+
+condiciones = [
+    ch13_limpio == 1,   # Finalizo el nivel  --> base + duracion completa
+    ch13_limpio == 2,   # No finalizo        --> base + ultimo ano aprobado
+]
+resultados = [
+    bd["_anos_base"] + bd["_duracion"],
+    bd["_anos_base"] + ch14_limpio,
+]
+
+bd["educ"] = np.select(condiciones, resultados, default = np.nan)
+bd = bd.drop(columns = ["_anos_base", "_duracion"])
+
+# Verificacion de valores extremos y de consistencia por nivel:
+print(bd["educ"].describe().round(2))
+print("\nAnos de educacion promedio segun nivel mas alto cursado (CH12):")
+print(bd.groupby("CH12")["educ"].mean().round(1))
+
+# %% 1.3 horastrab (jefe/a de hogar) y horastrabj (extendida al hogar):
+
+"""
+horastrab: total de horas trabajadas por el jefe/a del hogar, como suma de
+las horas en la ocupacion principal (PP3E_TOT) y en otras ocupaciones
+(PP3F_TOT). Queda definida solamente para CH03 = 1.
+
+horastrabj: la misma cantidad, pero asignada a todos los miembros del
+hogar, de manera que pueda usarse como caracteristica del hogar en los
+analisis a nivel individuo.
+"""
+
+bd["horastrab"] = np.where(
+    bd["CH03"] == 1,
+    bd["PP3E_TOT"] + bd["PP3F_TOT"],
+    np.nan
+)
+
+# Tabla auxiliar con las horas del jefe/a de cada hogar:
+horas_jefe = bd.loc[bd["CH03"] == 1, ["CODUSU", "NRO_HOGAR", "horastrab"]] \
+               .drop_duplicates(subset = ["CODUSU", "NRO_HOGAR"]) \
+               .rename(columns = {"horastrab": "horastrabj"})
+
+bd = bd.merge(horas_jefe, on = ["CODUSU", "NRO_HOGAR"], how = "left")
+
+# %% 1.4 nhogar (cantidad de miembros por hogar):
+bd["nhogar"] = bd.groupby(["CODUSU", "NRO_HOGAR"])["COMPONENTE"].transform("nunique")
+
+print(bd[["horastrab", "horastrabj", "nhogar"]].describe().round(2))
+
+# %% 1.5 Creacion de la base de ocupados (heredada del TP1):
+
+print(bd["ESTADO"].value_counts(normalize = True) * 100)
+
+respondieron   = bd[bd["ESTADO"] != 0].copy()
+norespondieron = bd[bd["ESTADO"] == 0].copy()
+
+ocupados = respondieron[respondieron["ESTADO"] == 1].copy()
+
+print("Base de ocupados:", ocupados.shape)
+
+# %% 1.6 Creacion de variables dicotomicas (heredadas del TP1):
+
+"""
+CORRECCION (iv). La version preliminar del TP2 solo reconstruia cat_ocup2,
+desc_jubilatorio y tam_estab. Se recuperan aca todas las dicotomicas del
+TP1, porque son exactamente el input que pide el item 6.a del TP2:
+
+CH04     --> sexo           (Masculino / Femenino)
+CH07     --> estado_civil   (Pareja / Sin pareja)
+SECTOR   --> sector_2       (Formal / Informal)
+NIVEL_ED --> nivel_ed2      (Basico o sin nivel / Superior)
+CAT_OCUP --> cat_ocup2      (No asalariado / Asalariado)
+CH08     --> cobertura_med  (Cobertura / No cobertura)
+
+Se conservan ademas las categoricas etiquetadas del TP1 que intervienen
+en la definicion de informalidad (desc_jubilatorio, tam_estab_agrup).
+"""
+
+"sexo"
+ocupados["sexo"] = ocupados["CH04"].map({
+    1: "Masculino",
+    2: "Femenino"
+})
+
+print(ocupados["sexo"].value_counts(normalize = True) * 100)
+
+"estado_civil"
+ocupados["estado_civil"] = ocupados["CH07"].map({
+    1: "Pareja",
+    2: "Pareja",
+    3: "Sin pareja",
+    4: "Sin pareja",
+    5: "Sin pareja",
+    9: np.nan
+})
+
+print(ocupados["estado_civil"].value_counts())
+
+"sector_2"
+ocupados["sector_2"] = ocupados["SECTOR"].map({
+    1: "Formal",
+    2: "Informal",
+    3: np.nan,
+    9: np.nan
+})
+
+print(ocupados["sector_2"].value_counts())
+
+"nivel_ed2"
+ocupados["nivel_ed2"] = ocupados["NIVEL_ED"].map({
+    1: "Basico/No_nivel",
+    2: "Basico/No_nivel",
+    3: "Basico/No_nivel",
+    4: "Basico/No_nivel",
+    5: "Superior",
+    6: "Superior",
+    7: "Basico/No_nivel",
+    9: np.nan
+})
+
+print(ocupados["nivel_ed2"].value_counts(normalize = True) * 100)
+
+"cat_ocup2"
+ocupados["cat_ocup2"] = ocupados["CAT_OCUP"].map({
+    1: "No asalariado",
+    2: "No asalariado",
+    3: "Asalariado",
+    4: np.nan,
+    9: np.nan
+})
+
+print(ocupados["cat_ocup2"].value_counts(normalize = True) * 100)
+
+"cobertura_med"
+ocupados["cobertura_med"] = ocupados["CH08"].map({
+    1:   "Cobertura",
+    2:   "Cobertura",
+    3:   "Cobertura",
+    12:  "Cobertura",
+    13:  "Cobertura",
+    23:  "Cobertura",
+    123: "Cobertura",
+    4:   "No cobertura",
+    9:   np.nan
+})
+
+print(ocupados["cobertura_med"].value_counts())
+
+"desc_jubilatorio"
+ocupados["desc_jubilatorio"] = ocupados["PP07H"].map({
+    1: "Si",
+    2: "No",
+    9: np.nan
+})
+
+print(ocupados["desc_jubilatorio"].value_counts())
+
+"tam_estab_agrup"
+ocupados["tam_estab_agrup"] = ocupados["PP04C99"].map({
+    1: "Hasta 5",
+    2: "De 6 a 40",
+    3: "Mas de 40",
+    9: np.nan
+})
+
+print(ocupados["tam_estab_agrup"].value_counts())
+
+# %% 1.7 Renombre de variables (heredado del TP1):
+
+renombres = {
+    "CODUSU":     "cod_vivienda",
+    "NRO_HOGAR":  "nro_hogar",
+    "COMPONENTE": "componente",
+    "ANO4":       "ano",
+    "TRIMESTRE":  "trimestre",
+    "PONDERA":    "ponderador",
+    "CH06":       "edad",
+    "NIVEL_ED":   "nivel_ed",
+    "ESTADO":     "cond_actividad",
+    "CAT_OCUP":   "cat_ocup",
+    "PP04C":      "tam_estab",
+    "PP04C99":    "tam_estab_cod",
+    "EMPLEO":     "tipo_empleo",
+    "SECTOR":     "tipo_sector",
+    "PP04D_COD":  "cod_ocupacion",
+    "P21":        "ingreso_ppal",
+    "P47T":       "ingreso_total",
+    "REGION":     "region",
+    "PP07H":      "desc_jub_cod",
+    "PP07K":      "comprobante_sal",
+    "PP07L":      "alcance_recibo",
+    "PP07M":      "parte_sueldo",
+    "PP03D":      "cant_ocupaciones_ad",
+}
+
+ocupados     = ocupados.rename(columns = renombres)
+respondieron = respondieron.rename(columns = renombres)
+
+"""
+Nota sobre 'tam_estab': en la version preliminar del TP2 esta variable
+aparecia como 'tam_estab_raw'. Se unifica bajo el nombre 'tam_estab' (ya
+depurada de los 99) y se conserva en formato numerico, porque el PCA,
+k-medias y el cluster jerarquico la necesitan como variable cuantitativa.
+Las versiones etiquetadas se crean aparte, con sufijo '_cat', para no
+pisar la informacion numerica (ver 1.8).
+"""
+
+# Verificacion de duplicados de nombres tras el renombre:
+print(ocupados.columns.duplicated().sum())
+print(ocupados.columns[ocupados.columns.duplicated()].tolist())
+
+# %% 1.8 Etiquetado de variables categoricas (heredado del TP1):
+
+"""
+A diferencia del TP1, aca las etiquetas se guardan en columnas nuevas con
+sufijo '_cat'. En el TP1 el mapeo pisaba la columna original y la
+convertia en texto, lo cual mepidia volver a usarla en calculos numericos.
+Como en el TP2 las mismas variables se necesitan en PCA y en cluster, se
+conservan ambas versiones.
+"""
+
+"nivel_ed_cat"
+ocupados["nivel_ed_cat"] = ocupados["nivel_ed"].map({
+    1: "Primario incompleto",
+    2: "Primario completo",
+    3: "Secundario incompleto",
+    4: "Secundario completo",
+    5: "Superior incompleto",
+    6: "Superior completo",
+    7: "Sin instruccion",
+    9: np.nan
+})
+
+"region_cat"
+ocupados["region_cat"] = ocupados["region"].map({
+    1:  "Gran Buenos Aires",
+    40: "Noroeste",
+    41: "Noreste",
+    42: "Cuyo",
+    43: "Pampeana",
+    44: "Patagonia"
+})
+
+"cat_ocup_cat"
+ocupados["cat_ocup_cat"] = ocupados["cat_ocup"].map({
+    1: "Patron",
+    2: "Cuenta propia",
+    3: "Obrero o empleado",
+    4: "Trab. familiar sin remuneracion",
+    9: np.nan
+})
+
+"tipo_empleo_cat"
+ocupados["tipo_empleo_cat"] = ocupados["tipo_empleo"].map({
+    1: "Formal",
+    2: "Informal",
+    9: np.nan
+})
+
+"tipo_sector_cat"
+ocupados["tipo_sector_cat"] = ocupados["tipo_sector"].map({
+    1: "Formal",
+    2: "Informal",
+    3: "Hogares",
+    9: np.nan
+})
+
+"comprobante_sal_cat"
+ocupados["comprobante_sal_cat"] = ocupados["comprobante_sal"].map({
+    1: "Recibo_sello",
+    2: "Recibo_nosello",
+    3: "Factura",
+    4: "Nada",
+    5: "Ad_honorem"
+})
+
+"alcance_recibo_cat"
+ocupados["alcance_recibo_cat"] = ocupados["alcance_recibo"].map({
+    1: "Totalidad",
+    2: "Solo una parte",
+    0: np.nan,
+    9: np.nan
+})
+
+"parte_sueldo_cat"
+ocupados["parte_sueldo_cat"] = ocupados["parte_sueldo"].map({
+    1: "Totalidad",
+    2: "Parte",
+    0: np.nan,
+    9: np.nan
+})
+
+# %% 1.9 Construccion del indicador de informalidad (heredado del TP1):
+
+"""
+Definicion asignada al grupo: se considera informal a quien es asalariado,
+no tiene descuento jubilatorio y trabaja en un establecimiento de hasta
+5 personas. El condicional sobre el tamano usa PP04C (codigos 1 a 5, que
+en ese tramo coinciden con la cantidad exacta de personas) o, en su
+defecto, la version agrupada PP04C99.
+"""
+
+ocupados["informal"] = (
+    (ocupados["cat_ocup2"] == "Asalariado") &
+    (ocupados["desc_jubilatorio"] == "No") &
+    ((ocupados["tam_estab"] <= 5) | (ocupados["tam_estab_agrup"] == "Hasta 5"))
+).map({True: "Informal", False: "Formal"})
+
+print(ocupados["informal"].value_counts(normalize = True).round(4) * 100)
+print(pd.crosstab(ocupados["ano"], ocupados["informal"], normalize = "index").round(4) * 100)
+
+# %% 2. Estadistica descriptiva:
+
+"""
+Se reportan las variables continuas limpias en el TP1 y las nuevas
+variables numericas creadas en el TP2, sobre la base completa de ocupados.
+"""
+
+# 2.1. Definicion de los dos grupos de variables:
+var_continuas_tp1 = ["edad", "ingreso_ppal", "ingreso_total",
+                     "cant_ocupaciones_ad", "tam_estab"]
+var_nuevas_tp2    = ["edad2", "educ", "horastrab", "horastrabj", "nhogar"]
+
+var_continuas = var_continuas_tp1 + var_nuevas_tp2
+
+# 2.2. Definicion de los percentiles a reportar:
+percentiles = [0.25, 0.50, 0.75]
+
+# 2.3. Construccion de la tabla de estadisticos descriptivos:
+etiquetas_desc = {
+    "edad":                "Edad",
+    "ingreso_ppal":        "Ingreso ocupación principal",
+    "ingreso_total":       "Ingreso total individual",
+    "cant_ocupaciones_ad": "Cantidad de ocupaciones adicionales",
+    "tam_estab":           "Tamano del establecimiento (código)",
+    "edad2":               "Edad al cuadrado",
+    "educ":                "Anos de educación",
+    "horastrab":           "Horas trabajadas (jefe/a)",
+    "horastrabj":          "Horas trabajadas del jefe/a (hogar)",
+    "nhogar":              "Miembros del hogar",
+}
+
+tabla_desc = ocupados[var_continuas].describe(percentiles = percentiles).T
+tabla_desc = tabla_desc.rename(columns = {
+    "count": "N", "mean": "Promedio", "std": "Desvio Est.",
+    "min": "Min", "25%": "P25", "50%": "P50", "75%": "P75", "max": "Max"
+})
+tabla_desc = tabla_desc[["N", "Promedio", "Desvio Est.", "Min",
+                         "P25", "P50", "P75", "Max"]].round(2)
+tabla_desc = tabla_desc.rename(index = etiquetas_desc)
+
+print(tabla_desc)
+
+# 2.4. Exportacion de la tabla a Excel:
+with pd.ExcelWriter("tabla_descriptiva_TP2.xlsx") as writer:
+    tabla_desc.to_excel(writer, sheet_name = "Descriptiva_TP2")
+
+print("Guardada: tabla_descriptiva_TP2.xlsx")
+
+# %% 3. Matriz de correlaciones (2024 y 2025) - base de ocupados:
+
+"""
+Este es el unico item del TP2 que se abre por ano, porque la consigna lo
+pide de manera explicita y pregunta si los coeficientes cambian entre
+2024 y 2025.
+
+Las variables solicitadas son informal, edad, edad2, educ, horastrabj,
+nhogar, P21 (ingreso_ppal) y PP04C (tam_estab). Se usa 'tam_estab' ya
+depurada de los codigos 99 y 'ingreso_ppal' ya expresada en pesos de 2025.
+La informalidad se codifica como 0 = Formal y 1 = Informal, de modo que un
+coeficiente positivo se lee como asociacion con mayor informalidad.
+"""
+from scipy import stats
+
+# 3.1. Definición de las variables y sus etiquetas:
+variables_corr = ["informal", "edad", "edad2", "educ", "horastrabj",
+                  "nhogar", "ingreso_ppal", "tam_estab"]
+etiquetas_corr = {
+    "informal":     "Informalidad",
+    "edad":         "Edad",
+    "edad2":        "Edad al cuadrado",
+    "educ":         "Años de educación",
+    "horastrabj":   "Horas trabajadas (jefe)",
+    "nhogar":       "Miembros del hogar",
+    "ingreso_ppal": "Ingreso ocupación principal",
+    "tam_estab":    "Tamaño del establecimiento",
+}
+
+# 3.2. Función auxiliar para calcular matriz de valores p:
+def calcular_pvalues(df):
+    df = df.dropna()
+    # n = len(df)
+    cols = df.columns
+    pvalues = pd.DataFrame(np.ones((len(cols), len(cols))), columns=cols, index=cols)
+    for i in cols:
+        for j in cols:
+            if i != j:
+                _, p = stats.pearsonr(df[i], df[j])
+                pvalues.loc[i, j] = p
+    return pvalues
+
+# 3.3. Cálculo de las matrices de correlación y valores p por año:
+matrices_corr  = {}
+matrices_pval  = {}
+
+for ano_val in [2024, 2025]:
+    subset = ocupados[ocupados["ano"] == ano_val][variables_corr].copy()
+    subset["informal"] = subset["informal"].map({"Formal": 0, "Informal": 1})
+
+    # Matriz de correlaciones
+    corr_matrix = subset.corr()
+    corr_matrix = corr_matrix.rename(index=etiquetas_corr, columns=etiquetas_corr)
+    matrices_corr[ano_val] = corr_matrix
+
+    # Matriz de valores p
+    subset_renombrado = subset.rename(columns=etiquetas_corr)
+    pval_matrix = calcular_pvalues(subset_renombrado)
+    matrices_pval[ano_val] = pval_matrix
+
+    print(f"\nMatriz de correlación - Ocupados {ano_val}")
+    print(corr_matrix.round(2))
+    print(f"\nMatriz de valores p - Ocupados {ano_val}")
+    print(pval_matrix.round(3))
+
+# 3.4. Diferencia entre las matrices de ambos años (apoyo para el comentario):
+dif_corr = (matrices_corr[2025] - matrices_corr[2024]).round(3)
+print("\nDiferencia de coeficientes (2025 - 2024):")
+print(dif_corr)
+
+# 3.5. Exportación de las matrices a Excel:
+with pd.ExcelWriter("matriz_correlaciones_TP2.xlsx") as writer:
+    for ano_val, matriz in matrices_corr.items():
+        matriz.round(2).to_excel(writer, sheet_name=f"Corr_{ano_val}")
+    for ano_val, pval in matrices_pval.items():
+        pval.round(3).to_excel(writer, sheet_name=f"Pval_{ano_val}")
+    dif_corr.to_excel(writer, sheet_name="Diferencia")
+
+# 3.5. Heatmaps de las matrices de correlacion:
+for ano_val in [2024, 2025]:
+
+    corr_matrix = matrices_corr[ano_val]
+
+    # Mascara para mostrar solo el triangulo inferior:
+    mask = np.triu(np.ones_like(corr_matrix, dtype = bool))
+
+    sns.set_style("white")
+    fig, ax = plt.subplots(figsize = (10, 8))
+
+    sns.heatmap(
+        corr_matrix,
+        mask = mask,
+        vmin = -1, vmax = 1,
+        annot = True, fmt = ".2f",
+        cmap = "coolwarm",
+        linewidths = 0.5,
+        ax = ax,
+        cbar_kws = {"label": "Correlacion de Pearson", "shrink": 0.8}
+    )
+
+    ax.set_title(
+        f"Matriz de correlaciones - Ocupados {ano_val}",
+        fontsize = 13, fontweight = "bold", loc = "center", pad = 15
+    )
+    ax.set_xticklabels(ax.get_xticklabels(), rotation = 35, ha = "right", fontsize = 9)
+    ax.set_yticklabels(ax.get_yticklabels(), rotation = 0, fontsize = 9)
+
+    plt.tight_layout()
+    plt.savefig(f"heatmap_correlaciones_{ano_val}.png", dpi = 300, bbox_inches = "tight")
+    plt.show()
 
 # =============================================================================
 # PARTE II: METODOS NO SUPERVISADOS
 # =============================================================================
+
 # %% Definicion comun de variables y preparacion de los datos (base completa):
 
 """
 Los items 1 a 5 del TP2 trabajan con el mismo conjunto de siete variables
 sobre la base completa de ocupados (2024 + 2025). Se prepara una sola vez
-el objeto 'datos_pool' con la base filtrada y su version estandarizada,
+el objeto 'datos_pool' con la base filtrada y su versión estandarizada,
 para no repetir el bloque en cada item.
 
 La estandarizacion es imprescindible en PCA, k-medias y cluster jerarquico
@@ -96,11 +746,11 @@ variables_cluster = ["edad", "edad2", "educ", "horastrabj",
 etiquetas_cluster = {
     "edad":         "Edad",
     "edad2":        "Edad2",
-    "educ":         "Anos de educacion",
+    "educ":         "Años de educación",
     "horastrabj":   "Horas trab. (jefe)",
     "nhogar":       "Miembros del hogar",
-    "ingreso_ppal": "Ingreso ppal.",
-    "tam_estab":    "Tamano establec.",
+    "ingreso_ppal": "Ingreso principal",
+    "tam_estab":    "Tamaño establec.",
 }
 
 # (a) Filtro de observaciones completas:
@@ -145,6 +795,203 @@ print(f"Porcentaje de solapamiento:         {pct_en_ambos:.1f}%")
 # (Luciano Altamirano)
 # =============================================================================
 
+# %%---- 1. PCA: scores del primer y segundo componente -----
+
+"""
+Se aplica PCA sobre las siete variables estandarizadas y se grafican los
+scores de los dos primeros componentes, distinguiendo por color a las
+personas formales e informales. La informalidad no participa del calculo:
+se usa unicamente para colorear, de modo que el grafico muestra si las
+siete variables contienen por si solas un eje de variacion que separe a
+ambos grupos.
+"""
+
+"1.1 Ajuste del PCA sobre los datos estandarizados:"
+pca    = PCA(n_components = len(variables_cluster), random_state = 42)
+scores = pca.fit_transform(X_pool)
+
+datos_pool["PC1"] = scores[:, 0]
+datos_pool["PC2"] = scores[:, 1]
+
+var_pc1 = pca.explained_variance_ratio_[0] * 100
+var_pc2 = pca.explained_variance_ratio_[1] * 100
+
+print(f"Varianza explicada por PC1: {var_pc1:.1f}%")
+print(f"Varianza explicada por PC2: {var_pc2:.1f}%")
+
+"1.2 Grafico de dispersion de los scores (PC1 vs PC2):"
+sns.set_style("white")
+fig, ax = plt.subplots(figsize = (9, 7))
+
+sns.scatterplot(
+    data = datos_pool,
+    x = "PC1", y = "PC2",
+    hue = "informal",
+    palette = {"Formal": "#2196F3", "Informal": "#F44336"},
+    alpha = 0.35, s = 16, edgecolor = "none",
+    ax = ax
+)
+
+ax.set_title("PCA - Scores de los dos primeros componentes\nOcupados, T4 2024 y T4 2025",
+             fontsize = 13, fontweight = "bold", pad = 15)
+ax.set_xlabel(f"Componente 1 ({var_pc1:.1f}% de la varianza)")
+ax.set_ylabel(f"Componente 2 ({var_pc2:.1f}% de la varianza)")
+ax.axhline(0, color = "gray", lw = 0.8, ls = "--")
+ax.axvline(0, color = "gray", lw = 0.8, ls = "--")
+ax.legend(title = "Condicion")
+
+plt.tight_layout()
+plt.savefig("pca_scores.png", dpi = 300, bbox_inches = "tight")
+plt.show()
+
+"1.3 Identificacion de outliers (mas de 5 desvios en PC1 o PC2):"
+lim_pc1 = 5 * datos_pool["PC1"].std()
+lim_pc2 = 5 * datos_pool["PC2"].std()
+
+outliers = datos_pool[(datos_pool["PC1"].abs() > lim_pc1) |
+                      (datos_pool["PC2"].abs() > lim_pc2)]
+
+print(f"\nOutliers detectados (|score| > 5 desvios): {len(outliers)}")
+
+if len(outliers) > 0:
+    print("\nPerfil de los outliers:")
+    print(outliers[variables_cluster].describe().round(1))
+    print("\nComposicion segun informalidad:")
+    print(outliers["informal"].value_counts())
+
+"1.4 Comparacion de los scores promedio por condicion (apoyo interpretativo):"
+print("\nScores promedio por condicion:")
+print(datos_pool.groupby("informal")[["PC1", "PC2"]].mean().round(3))
+
+# %%---- 2. PCA: grafico de loadings (biplot) -----
+
+"""
+Se superponen los scores de los individuos y las flechas de los
+ponderadores (loadings) de cada variable sobre los dos primeros
+componentes. Las flechas se reescalan para que sean visibles junto a la
+nube de puntos; lo interpretable es su direccion y su longitud relativa,
+no su magnitud absoluta.
+"""
+
+"2.1 Recuperacion de los loadings:"
+loadings = pca.components_.T   # filas = variables, columnas = componentes
+
+"2.2 Factor de escala para que las flechas sean comparables con los scores:"
+escala = np.abs(scores[:, :2]).max() * 0.8
+
+"2.3 Grafico del biplot:"
+sns.set_style("white")
+fig, ax = plt.subplots(figsize = (10, 8))
+
+colores = datos_pool["informal"].map({"Formal": "#2196F3", "Informal": "#F44336"})
+ax.scatter(scores[:, 0], scores[:, 1], c = colores, alpha = 0.2,
+           s = 12, edgecolor = "none")
+
+# Offsets manuales para separar etiquetas solapadas (dx, dy en unidades del gráfico):
+offsets_etiquetas = {
+    "edad":         (0.3,  0.0),
+    "edad2":        (0.3, -0.3),
+    "educ":         (-0.2, -0.6),
+    "tam_estab":    (-0.2,  0.0),
+    "horastrabj":   (-0.3,  0.3),
+    "nhogar":       (-0.2, -0.3),
+    "ingreso_ppal": ( 0.2,  0.3),
+    "P21":          ( 0.2,  0.3),
+}
+
+for i, var in enumerate(variables_cluster):
+    lx = loadings[i, 0] * escala
+    ly = loadings[i, 1] * escala
+    ax.arrow(0, 0, lx, ly,
+             color="black", width=0.01, head_width=0.15,
+             length_includes_head=True)
+    dx, dy = offsets_etiquetas.get(var, (0.0, 0.0))
+    ax.text(lx * 1.12 + dx,
+            ly * 1.12 + dy,
+            etiquetas_cluster[var],
+            color="black", fontsize=10, fontweight="bold",
+            ha="center", va="center")
+
+ax.set_title("PCA - Biplot de scores y loadings\nOcupados, T4 2024 y T4 2025",
+             fontsize = 13, fontweight = "bold", pad = 15)
+ax.set_xlabel(f"Componente 1 ({var_pc1:.1f}% de la varianza)")
+ax.set_ylabel(f"Componente 2 ({var_pc2:.1f}% de la varianza)")
+ax.axhline(0, color = "gray", lw = 0.8, ls = "--")
+ax.axvline(0, color = "gray", lw = 0.8, ls = "--")
+
+# Leyenda construida a mano, porque el scatter se hizo con colores directos:
+handles = [Line2D([0], [0], marker = "o", color = "w", label = "Formal",
+                  markerfacecolor = "#2196F3", markersize = 8),
+           Line2D([0], [0], marker = "o", color = "w", label = "Informal",
+                  markerfacecolor = "#F44336", markersize = 8)]
+ax.legend(handles = handles, title = "Condicion", loc = "best")
+
+plt.tight_layout()
+plt.savefig("pca_biplot.png", dpi = 300, bbox_inches = "tight")
+plt.show()
+
+"2.4 Tabla de loadings de los dos primeros componentes:"
+tabla_loadings = pd.DataFrame(
+    loadings[:, :2],
+    index = [etiquetas_cluster[v] for v in variables_cluster],
+    columns = ["Componente 1", "Componente 2"]
+).round(3)
+
+print("\nLoadings de los dos primeros componentes:")
+print(tabla_loadings)
+
+with pd.ExcelWriter("pca_loadings_TP2.xlsx") as writer:
+    tabla_loadings.to_excel(writer, sheet_name = "Loadings")
+
+# %%---- 3. PCA: proporcion de varianza explicada -----
+
+"""
+Se grafica la proporcion de varianza explicada por cada uno de los siete
+componentes, junto con la varianza acumulada. La lectura debe hacerse en
+conjunto con la matriz de correlaciones del item 3 de la Parte I: cuanto
+mas correlacionadas estan las variables originales, mas varianza logran
+concentrar los primeros componentes. Si las correlaciones son bajas, la
+varianza se reparte de manera pareja entre los siete componentes y PCA no
+consigue reducir dimensiones.
+"""
+
+"3.1 Recuperacion de la varianza explicada:"
+var_ratio   = pca.explained_variance_ratio_ * 100
+var_acum    = np.cumsum(var_ratio)
+componentes = np.arange(1, len(var_ratio) + 1)
+
+"3.2 Grafico de barras (individual) y linea (acumulada):"
+sns.set_style("whitegrid")
+fig, ax = plt.subplots(figsize = (9, 6))
+
+ax.bar(componentes, var_ratio, color = "steelblue",
+       edgecolor = "white", label = "Varianza explicada")
+ax.plot(componentes, var_acum, marker = "o", color = "#F44336",
+        label = "Varianza acumulada")
+
+for x, y in zip(componentes, var_ratio):
+    ax.text(x, y + 1.5, f"{y:.1f}", ha = "center", fontsize = 9)
+
+ax.set_title("PCA - Proporcion de varianza explicada\nOcupados, T4 2024 y T4 2025",
+             fontsize = 13, fontweight = "bold", pad = 15)
+ax.set_xlabel("Componente principal")
+ax.set_ylabel("Porcentaje de la varianza (%)")
+ax.set_xticks(componentes)
+ax.set_ylim(0, 105)
+ax.legend(loc = "center right")
+
+plt.tight_layout()
+plt.savefig("pca_varianza_explicada.png", dpi = 300, bbox_inches = "tight")
+plt.show()
+
+"3.3 Tabla de varianza explicada e acumulada:"
+tabla_varianza = pd.DataFrame({
+    "Varianza explicada (%)": var_ratio.round(1),
+    "Varianza acumulada (%)": var_acum.round(1)
+}, index = [f"PC{i}" for i in componentes])
+
+print("\nVarianza explicada por componente:")
+print(tabla_varianza)
 
 # =============================================================================
 # PARTE II.B: ANALISIS CLUSTER
@@ -573,7 +1420,12 @@ X_cat = ocupados[vars_kmodas].copy()
 X_cat["dummy_menor5"] = X_cat["dummy_menor5"].map({0: "Sin menor", 1: "Con menor"})
 
 # Todas las columnas pasan a texto y los NaN a una categoria propia:
-X_cat = X_cat.astype(str).replace({"nan": "Sin dato", "NaN": "Sin dato"})
+X_cat = (
+    X_cat
+    .astype(object)     # libera el tipo CategoricalDtype antes de fillna
+    .fillna("Sin dato") # atrapa cualquier tipo de NaN
+    .astype(str)        # homogeneiza todo a string
+)
 
 y_cat = ocupados["informal"]
 
@@ -816,5 +1668,3 @@ with pd.ExcelWriter("resumen_cluster_TP2.xlsx") as writer:
     resumen.to_excel(writer, sheet_name = "Resumen", index = False)
 
 print("Guardada: resumen_cluster_TP2.xlsx")
-
-
