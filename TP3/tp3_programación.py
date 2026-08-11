@@ -550,7 +550,7 @@ y_2025 = ocupados_X_2025['informal']
 for df in [ocupados_X_2024, ocupados_X_2025]:
     df['id'] = df['cod_vivienda'].astype(str) + df['nro_hogar'].astype(str) + df['componente'].astype(str)
     
-#%% 1.11 Hacer la unificación de la base de datos:
+#%% 1.11 Unificar de la base de datos:
 
 # 1.11.1. Añadir la variable id a las bases que se van a modelar:
 y_2024_df = pd.DataFrame({
