@@ -877,7 +877,7 @@ tabla_diferencia_medias.to_excel(
 # PARTE B: MODELO DE REGRESION LOGISTICA
 # =============================================================================
 
-#%% 3. Estimacion de los modelos de Regresion Logistica (Consigna B.1,
+#%% 1. Estimacion de los modelos de Regresion Logistica (Consigna B.1,
 #      extension de Maurizio & Monsalvo, 2021):
 
 """
@@ -899,7 +899,7 @@ representaciones redundantes, estandarizar las variables continuas y
 estimar.
 """
 
-# 3.1. Vectores objetivo binarios (0 = Formal, 1 = Informal):
+# 1.1. Vectores objetivo binarios (0 = Formal, 1 = Informal):
 y_2024_bin    = y_2024.map({'Formal': 0, 'Informal': 1})
 y_2025_MM_bin = y_2025_MM.map({'Formal': 0, 'Informal': 1})
 
@@ -909,7 +909,7 @@ print(y_2024_bin.value_counts())
 print("Distribucion y_2025_MM_bin:")
 print(y_2025_MM_bin.value_counts())
 
-# 3.2. Alinear observaciones y eliminar NaN (statsmodels no admite NaN):
+# 1.2. Alinear observaciones y eliminar NaN (statsmodels no admite NaN):
 datos_2024 = pd.concat(
     [y_2024_bin.rename('y'), ocupados_X_2024], axis = 1
 ).dropna()
@@ -925,7 +925,7 @@ X_2025_MM_raw   = datos_2025_MM.drop(columns = 'y')
 print("Observaciones Modelo 1 (2024):", X_2024_raw.shape)
 print("Observaciones Modelo 2 (2025_MM):", X_2025_MM_raw.shape)
 
-# 3.3. Excluir representaciones redundantes de educacion y otras
+# 1.3. Excluir representaciones redundantes de educacion y otras
 # colinealidades identificadas en el diagnostico de errores estandar:
 
 """
@@ -964,9 +964,12 @@ redundantes_logit = [
     'nivel_ed_aprb_Sexto',
     'nivel_ed_aprb_Séptimo',
     'nivel_ed_aprb_Tercero',
+    'ingreso_ppal',
     'finalizacion_nivel_Sí',
-    # Colineal con horastrab:
+    'cat_ocup_cat_Patron',
+    # Colineal con las variables de horas de trabajo:
     'horastrabj',
+    'horastrab',
     # Alta cardinalidad sin valor directo como regresora:
     'cod_ocupacion',
 ]
@@ -981,7 +984,7 @@ X_2025_MM_raw = X_2025_MM_raw.drop(
 print("Columnas en X_2024_raw tras excluir redundantes:",    X_2024_raw.shape[1])
 print("Columnas en X_2025_MM_raw tras excluir redundantes:", X_2025_MM_raw.shape[1])
 
-# 3.4. Eliminar columnas con varianza cero o cuasi-cero (std < 0.01):
+# 1.4. Eliminar columnas con varianza cero o cuasi-cero (std < 0.01):
 
 """
 Las columnas con varianza cero son constantes en la muestra y no
@@ -999,7 +1002,7 @@ def limpiar_varianza(df, umbral_std = 0.01):
 X_2024_raw    = limpiar_varianza(X_2024_raw)
 X_2025_MM_raw = limpiar_varianza(X_2025_MM_raw)
 
-# 3.5. Estandarizar las variables continuas (media 0, desv. std 1):
+# 1.5. Estandarizar las variables continuas (media 0, desv. std 1):
 
 """
 Las variables continuas (edad, edad2, educ, horas, ingresos, nhogar)
@@ -1029,7 +1032,7 @@ cols_cont_MM = [c for c in continuas if c in X_2025_MM_raw.columns]
 X_2025_MM_raw = X_2025_MM_raw.copy()
 X_2025_MM_raw[cols_cont_MM] = scaler.transform(X_2025_MM_raw[cols_cont_MM])
 
-# 3.6. Diagnostico de rango final:
+# 1.6. Diagnostico de rango final:
 from numpy.linalg import matrix_rank
 
 X_2024_final    = sm.add_constant(X_2024_raw)
@@ -1040,23 +1043,23 @@ print("Rango / columnas Modelo 1:",
 print("Rango / columnas Modelo 2:",
       matrix_rank(X_2025_MM_final), "/", X_2025_MM_final.shape[1])
 
-# 3.7. Estimacion del Modelo 1 (2024):
+# 1.7. Estimacion del Modelo 1 (2024):
 modelo_2024 = sm.Logit(y_2024_final, X_2024_final).fit(
     method  = 'bfgs',
-    maxiter = 300,
+#   maxiter = 1000,
     disp    = True
 )
 print(modelo_2024.summary())
 
-# 3.8. Estimacion del Modelo 2 (2025_MM, especificacion Maurizio & Monsalvo):
+# 1.8. Estimacion del Modelo 2 (2025_MM, especificacion Maurizio & Monsalvo):
 modelo_2025_MM = sm.Logit(y_2025_MM_final, X_2025_MM_final).fit(
     method  = 'bfgs',
-    maxiter = 300,
+#   maxiter = 1000,
     disp    = True
 )
 print(modelo_2025_MM.summary())
 
-#%% 3.9. Tabla de coeficientes, EMP, errores estandar y odds-ratios
+#%% 1.9. Tabla de coeficientes, EMP, errores estandar y odds-ratios
 #        (Consigna B.1 items i, ii y iii):
 
 """
@@ -1072,7 +1075,7 @@ Para cada modelo se extraen de statsmodels:
   distribucion observada, que es el EMP propiamente dicho).
 """
 
-# 3.9.1. Funcion auxiliar para construir la tabla de un modelo:
+# 1.9.1. Funcion auxiliar para construir la tabla de un modelo:
 def tabla_logit(modelo, nombre_modelo):
     margeff = modelo.get_margeff(at = 'overall', method = 'dydx')
 
@@ -1099,16 +1102,16 @@ def tabla_logit(modelo, nombre_modelo):
     )
     return tabla
 
-# 3.9.2. Construir la tabla para cada modelo:
+# 1.9.2. Construir la tabla para cada modelo:
 tabla_m1 = tabla_logit(modelo_2024,    'Modelo 1 (2024)')
 tabla_m2 = tabla_logit(modelo_2025_MM, 'Modelo 2 (2025 MM)')
 
-# 3.9.3. Unir ambas tablas en columnas:
+# 1.9.3. Unir ambas tablas en columnas:
 tabla_conjunta = tabla_m1.join(tabla_m2, how = 'outer').round(4)
 
 print(tabla_conjunta.to_string())
 
-# 3.9.4. Exportar a Excel:
+# 1.9.4. Exportar a Excel:
 tabla_conjunta.to_excel(
     "tabla_coef_logit.xlsx",
     sheet_name   = "Coef_EMP_OR",
