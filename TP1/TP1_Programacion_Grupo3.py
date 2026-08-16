@@ -1,27 +1,69 @@
+# -*- coding: utf-8 -*-
+
+"""
+(*) El trabajo se desarrollo de forma conjunta.
+
+Parte I y Parte II.A (PCA) --> Luciano Altamirano
+Parte II.B (Cluster)       --> Gonzalo Pasiche
+
+NOTA GENERAL SOBRE LA CONTINUIDAD CON EL TP1
+--------------------------------------------
+Este script reproduce la limpieza y la construccion de variables del TP1
+(porque la base 'ocupados' no se guardo como archivo intermedio) y luego
+avanza con las consignas del TP2. Se mantiene la numeracion y el formato
+del TP1 para que ambos codigos sean legibles en conjunto.
+
+Cuatro correcciones respecto de la version preliminar del TP2, cada una
+documentada en el lugar donde se aplica:
+  (i)   PP04C = 99 es "Ns/Nr" y debe ir a NaN antes de cualquier calculo.
+  (ii)  PP04C es un codigo ordinal de tramos, no un conteo de empleados.
+  (iii) El ajuste por inflacion de los ingresos de 2024 estaba ausente.
+  (iv)  Faltaban las variables dicotomicas creadas en el TP1, que son
+        justamente el input del item 6.a.
+
+CRITERIO DE APERTURA POR ANO
+----------------------------
+La Parte I mantiene la apertura por ano en el item 3, que es donde la
+consigna la pide explicitamente y donde ademas pregunta si los
+coeficientes cambian entre 2024 y 2025. La Parte II, en cambio, trabaja
+sobre la base completa (2024 + 2025 pooleados), porque ninguna de sus
+consignas solicita separacion temporal: piden aplicar los metodos "de la
+base de ocupados". Poolear duplica el tamano muestral, estabiliza las
+curvas de codo y evita duplicar la salida grafica, algo relevante dado el
+tope de cinco paginas del informe. La estabilidad de los resultados entre
+anos se verifica igualmente, cruzando los mefistofelicos clusteres obtenidos contra el
+ano de la observacion (ver items 4.a.6 y 6.a.5).
+"""
+
+# =============================================================================
+# PAQUETES
+# =============================================================================
 
 import numpy as np
-import matplotlib.pyplot as plt
 import pandas as pd
-import os
+import matplotlib.pyplot as plt
 import seaborn as sns
-from sklearn.neighbors import KernelDensity
+import os
 
-# Seteo de directorio ** CAMBIAR **:
-os.chdir(r"/Volumes/ADATA HD330/Maestría Economía Aplicada UBA/Taller de programación/Trabajos prácticos/TP1 (preliminar)")
-os.chdir(r"C:\Users\gmpas\OneDrive\Escritorio\Seminario Programación\TP1")
+from matplotlib.lines import Line2D
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+from sklearn.cluster import KMeans
+from scipy.cluster.hierarchy import dendrogram, linkage, fcluster
+
+# Para k-modas se requiere el paquete 'kmodes' (instalar una sola vez):
+# import sys
+# !{sys.executable} -m pip install kmodes
+from kmodes.kmodes import KModes
+
+print("Paquetes cargados correctamente.")
+
+# Seteo de directorio:
+os.chdir(r"C:\Users\gmpas\OneDrive\Escritorio\Seminario Programación\TP2")
 
 print(os.getcwd())
 
-pd.set_option("display.float_format", "{:,.00f}".format)
-
-"""
-(*) El trabajo se desarrolló de forma conjunta, las ediciones de las 
-parte 1 y 2 aparecen con el users de Luciano Altamirano dado 
-que él fue quien creó el repositorio
-
-parte 1-2 --> Gonzalo Pasiche
-parte 3 --> Luciano Altamirano
-"""
+pd.set_option("display.float_format", "{:,.2f}".format)
 
 #%% PARTE 1
 #%% 1.1 Carga de datos

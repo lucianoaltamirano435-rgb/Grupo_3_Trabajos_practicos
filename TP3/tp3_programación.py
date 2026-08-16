@@ -23,8 +23,8 @@ from kmodes.kmodes import KModes
 print("Paquetes cargados correctamente.")
 
 # Seteo de directorio:
-# os.chdir(r"C:\Users\gmpas\OneDrive\Escritorio\Seminario Programación\TP2")
-os.chdir(r"/Volumes/ADATA HD330/Maestría Economía Aplicada UBA/Taller de programación/Trabajos prácticos/Grupo_3_Trabajos_practicos/TP3")
+os.chdir(r"C:\Users\gmpas\OneDrive\Escritorio\Seminario Programación\TP3")
+# os.chdir(r"/Volumes/ADATA HD330/Maestría Economía Aplicada UBA/Taller de programación/Trabajos prácticos/Grupo_3_Trabajos_practicos/TP3")
 
 print(os.getcwd())
 
@@ -636,6 +636,11 @@ ocupados = ocupados.loc[:, ~ocupados.columns.duplicated(keep = "first")]
 print("Estructura luego de suprimir duplicadas:", ocupados.shape)
 print("Duplicadas restantes:", ocupados.columns.duplicated().sum())
 
+#%%
+# =============================================================================
+# TRABAJO PRÁCTICO 3
+# =============================================================================
+
 #%% 1.11. Creacion de las bases de datos anuales (Consigna A.1):
 
 # 1.11.1. Crear las bases de datos por año (todavia con 'informal' e
@@ -648,8 +653,25 @@ y_2024 = ocupados_X_2024['informal']
 y_2025 = ocupados_X_2025['informal']
 
 # 1.11.3. Crear un codigo para hacer el 'join':
+"""
+CORRECCION: los identificadores se rellenan con ceros a la izquierda
+(zfill) antes de concatenarse. Si 'cod_vivienda' o 'componente' pasaron
+en algun momento por un tipo numerico, .astype(str) elimina los ceros
+iniciales y dos individuos distintos pueden generar el mismo 'id' (o un
+mismo individuo generar ids distintos en 2024 y 2025), lo que degrada
+el match del panel. El separador '_' evita ademas colisiones del tipo
+'12' + '3' = '1' + '23'.
+"""
 for df in [ocupados_X_2024, ocupados_X_2025]:
-    df['id'] = df['cod_vivienda'].astype(str) + df['nro_hogar'].astype(str) + df['componente'].astype(str)
+    df['id'] = (
+        df['cod_vivienda'].astype(str).str.strip().str.zfill(6) + '_' +
+        df['nro_hogar'].astype(str).str.strip().str.zfill(2)   + '_' +
+        df['componente'].astype(str).str.strip().str.zfill(2)
+    )
+
+# Control de unicidad del identificador dentro de cada año:
+print("Duplicados de 'id' en 2024:", ocupados_X_2024['id'].duplicated().sum())
+print("Duplicados de 'id' en 2025:", ocupados_X_2025['id'].duplicated().sum())
 
 #%% 1.12. Unificacion de la base de datos (Consigna A.1, extension Maurizio & Monsalvo):
 
@@ -678,6 +700,8 @@ ocupados_X_2025_MM = ocupados_X_2025.merge(
 
 print("Estructura de ocupados_X_2025 (original):", ocupados_X_2025.shape)
 print("Estructura de ocupados_X_2025_MM (con el 'join'):", ocupados_X_2025_MM.shape)
+print("Tasa de supervivencia del panel:",
+      round(len(ocupados_X_2025_MM) / len(ocupados_X_2025), 4))
 
 # 1.12.3. Suprimir las variables duplicadas resultantes del 'join':
 duplicadas_MM = ocupados_X_2025_MM.columns[ocupados_X_2025_MM.columns.duplicated()].tolist()
@@ -698,7 +722,7 @@ print("Indices alineados con ocupados_X_2025_MM:",
 #        caracteristicas (aplicado por igual a las tres bases):
 
 """
-Se suprimen tres grupos de columnas ANTES del one-hot encoding, de
+Se suprimen cuatro grupos de columnas ANTES del one-hot encoding, de
 manera que ninguna de sus dummies llegue a generarse:
 
 (i)   Identificadoras / de agrupacion, sin valor como caracteristica
@@ -732,6 +756,8 @@ definitorias_informal = [
     'cat_ocup2', 'desc_jubilatorio',
     'tam_estab', 'tam_estab_agrup',
     'sector_2', 'tipo_sector_cat', 'tipo_empleo_cat',
+    'comprobante_sal_cat', 'alcance_recibo_cat',
+    'parte_sueldo_cat', 'cat_ocup_cat'
 ]
 
 no_caracteristicas = ['ponderador', 'cond_actividad']
@@ -792,6 +818,41 @@ print("Estructura ocupados_X_2025:", ocupados_X_2025.shape)
 print("Mismas columnas en ambas bases:",
       set(ocupados_X_2024.columns) == set(ocupados_X_2025.columns))
 
+# 1.14.1.bis. REALINEACION DE LOS VECTORES OBJETIVO (CORRECCION CLAVE):
+"""
+'pd.concat(..., ignore_index = True)' descarta el indice original y
+genera un RangeIndex nuevo sobre la union. Al volver a separar las
+bases, 'ocupados_X_2024' y 'ocupados_X_2025' quedan con posiciones de
+ese RangeIndex, mientras que 'y_2024' e 'y_2025' conservan el indice
+original de 'ocupados' (paso 1.11.2).
+
+Esto importa porque en 1.2 de la Parte B se hace
+'pd.concat([y_2024_bin, ocupados_X_2024], axis = 1)', y 'concat' con
+axis = 1 alinea POR INDICE, no por posicion. Si los indices no se
+corresponden, cada individuo queda emparejado con el estatus de
+informalidad de otra persona (o queda NaN y se pierde en el dropna),
+y el logit termina ajustando contra ruido: coeficientes colapsados
+hacia cero, errores estandar grandes y pseudo-R2 nulo.
+
+Como el orden de las filas SI se preserva a lo largo de todo el
+proceso (concat apila 2024 y despues 2025, y el filtro por '_origen'
+respeta ese orden), basta con reiniciar ambos indices para restaurar
+la correspondencia posicional.
+"""
+
+ocupados_X_2024 = ocupados_X_2024.reset_index(drop = True)
+ocupados_X_2025 = ocupados_X_2025.reset_index(drop = True)
+
+y_2024 = y_2024.reset_index(drop = True)
+y_2025 = y_2025.reset_index(drop = True)
+
+print("Alineacion 2024 -> filas X:", len(ocupados_X_2024),
+      "| filas y:", len(y_2024),
+      "| indices identicos:", ocupados_X_2024.index.equals(y_2024.index))
+print("Alineacion 2025 -> filas X:", len(ocupados_X_2025),
+      "| filas y:", len(y_2025),
+      "| indices identicos:", ocupados_X_2025.index.equals(y_2025.index))
+
 # 1.14.2. Encoding de ocupados_X_2025_MM (por separado, porque incluye
 # el regresor adicional 'informal_2024' que no existe en las otras dos):
 cualitativas_MM = ocupados_X_2025_MM.select_dtypes(include = 'object').columns.tolist()
@@ -814,6 +875,21 @@ bool_cols_MM = ocupados_X_2025_MM.select_dtypes(include = bool).columns.tolist()
 ocupados_X_2025_MM[bool_cols_MM] = ocupados_X_2025_MM[bool_cols_MM].astype(int)
 
 print("Estructura ocupados_X_2025_MM:", ocupados_X_2025_MM.shape)
+
+# 1.14.2.bis. Control de compatibilidad entre train y test:
+"""
+El encoding de 2025_MM corre por separado, por lo que la categoria de
+referencia descartada por drop_first podria diferir de la de 2024 y
+generar nombres de dummies incompatibles. El control siguiente lo
+verifica de forma explicita: si aparecen columnas en 2024 que no estan
+en 2025_MM, la prediccion fuera de muestra (B.2 y Parte C) no seria
+valida sin un realineamiento previo.
+"""
+solo_en_2024 = sorted(set(ocupados_X_2024.columns) - set(ocupados_X_2025_MM.columns))
+solo_en_MM   = sorted(set(ocupados_X_2025_MM.columns) - set(ocupados_X_2024.columns))
+
+print("Columnas en 2024 ausentes en 2025_MM:", solo_en_2024)
+print("Columnas en 2025_MM ausentes en 2024:", solo_en_MM)
 
 #%% 2. Analisis descriptivo y diferencia de medias (Consigna A.2):
 
@@ -865,7 +941,15 @@ for var in columnas_comunes:
 
 tabla_diferencia_medias = pd.DataFrame(resultados_medias).set_index("variable")
 
+# Marca de significatividad para facilitar la lectura de la tabla:
+tabla_diferencia_medias['significativa_5pct'] = (
+    tabla_diferencia_medias['p_valor'] < 0.05
+)
+
 print(tabla_diferencia_medias.round(4))
+print("Caracteristicas con diferencia significativa al 5%:",
+      int(tabla_diferencia_medias['significativa_5pct'].sum()),
+      "de", len(tabla_diferencia_medias))
 
 tabla_diferencia_medias.to_excel(
     "tabla_diferencia_medias.xlsx",
@@ -873,6 +957,7 @@ tabla_diferencia_medias.to_excel(
     float_format = "%.4f"
 )
 
+#%%
 # =============================================================================
 # PARTE B: MODELO DE REGRESION LOGISTICA
 # =============================================================================
@@ -905,11 +990,27 @@ y_2025_MM_bin = y_2025_MM.map({'Formal': 0, 'Informal': 1})
 
 print("Distribucion y_2024_bin:")
 print(y_2024_bin.value_counts())
+print("Tasa de informalidad 2024:", round(y_2024_bin.mean(), 4))
 
 print("Distribucion y_2025_MM_bin:")
 print(y_2025_MM_bin.value_counts())
+print("Tasa de informalidad 2025 (panel MM):", round(y_2025_MM_bin.mean(), 4))
 
 # 1.2. Alinear observaciones y eliminar NaN (statsmodels no admite NaN):
+"""
+Tras la correccion de 1.14.1.bis los indices de y_2024_bin y
+ocupados_X_2024 coinciden, por lo que este concat empareja cada
+individuo con su propio estatus de informalidad. El assert deja el
+control explicito en el codigo: si el alineamiento se rompiera al
+modificar pasos anteriores, la ejecucion se detiene aca en lugar de
+producir un modelo silenciosamente mal estimado.
+"""
+
+assert y_2024_bin.index.equals(ocupados_X_2024.index), \
+    "y_2024 y ocupados_X_2024 no estan alineados (revisar 1.14.1.bis)"
+assert y_2025_MM_bin.index.equals(ocupados_X_2025_MM.index), \
+    "y_2025_MM y ocupados_X_2025_MM no estan alineados (revisar 1.12.4)"
+
 datos_2024 = pd.concat(
     [y_2024_bin.rename('y'), ocupados_X_2024], axis = 1
 ).dropna()
@@ -924,6 +1025,8 @@ X_2025_MM_raw   = datos_2025_MM.drop(columns = 'y')
 
 print("Observaciones Modelo 1 (2024):", X_2024_raw.shape)
 print("Observaciones Modelo 2 (2025_MM):", X_2025_MM_raw.shape)
+print("Tasa de informalidad tras el dropna (2024):", round(y_2024_final.mean(), 4))
+print("Tasa de informalidad tras el dropna (2025_MM):", round(y_2025_MM_final.mean(), 4))
 
 # 1.3. Excluir representaciones redundantes de educacion y otras
 # colinealidades identificadas en el diagnostico de errores estandar:
@@ -937,7 +1040,17 @@ conserva unicamente 'educ' (anos de educacion formal, continua) por ser
 la especificacion de Maurizio & Monsalvo (2021). Se elimina tambien
 'horastrabj' (colineal con 'horastrab') y 'cod_ocupacion' (categorica
 de alta cardinalidad que no aporta como regresora directa en el logit).
+
+Sobre 'ingreso_total': se mantiene como regresor pero conviene notar
+que su relacion con la informalidad es en parte mecanica (el empleo no
+registrado paga sistematicamente menos), por lo que puede absorber
+parte del efecto de 'educ' y 'edad'. El flag EXCLUIR_INGRESO permite
+estimar la especificacion alternativa sin esa variable y comparar la
+estabilidad de los coeficientes de interes; es un chequeo de robustez
+util para comentar en el informe.
 """
+
+EXCLUIR_INGRESO = False   # cambiar a True para el chequeo de robustez
 
 redundantes_logit = [
     # Representaciones redundantes de educacion (se conserva 'educ'):
@@ -974,6 +1087,9 @@ redundantes_logit = [
     'cod_ocupacion',
 ]
 
+if EXCLUIR_INGRESO:
+    redundantes_logit = redundantes_logit + ['ingreso_total']
+
 X_2024_raw = X_2024_raw.drop(
     columns = [c for c in redundantes_logit if c in X_2024_raw.columns]
 )
@@ -992,15 +1108,51 @@ aportan informacion al modelo; ademas causan singularidad en la
 Hessiana. Se usa un umbral de std < 0.01 para incluir tambien las
 cuasi-constantes (categorias con menos del 1% de los casos, como
 ciertas dummies de parentesco o nivel educativo extremo).
+
+CORRECCION: el criterio se calcula UNA sola vez sobre la muestra de
+entrenamiento (2024) y la misma lista se aplica a la de testeo. Aplicar
+el filtro por separado a cada base puede eliminar columnas distintas en
+cada una y dejar los dos modelos con conjuntos de regresores no
+comparables, lo que invalidaria tanto la tabla conjunta de B.1 como la
+prediccion fuera de muestra de B.2 y la Parte C. Estimar sobre train y
+trasladar la decision a test es ademas el procedimiento metodologicamente
+correcto: ninguna decision de especificacion debe tomarse mirando la
+muestra de testeo.
 """
 
-def limpiar_varianza(df, umbral_std = 0.01):
-    cols_bajas = df.columns[df.std() < umbral_std].tolist()
-    print("Columnas eliminadas por varianza baja:", cols_bajas)
-    return df.drop(columns = cols_bajas)
+cols_bajas = X_2024_raw.columns[X_2024_raw.std() < 0.01].tolist()
+print("Columnas eliminadas por varianza baja (criterio 2024):", cols_bajas)
 
-X_2024_raw    = limpiar_varianza(X_2024_raw)
-X_2025_MM_raw = limpiar_varianza(X_2025_MM_raw)
+X_2024_raw = X_2024_raw.drop(columns = cols_bajas)
+X_2025_MM_raw = X_2025_MM_raw.drop(
+    columns = [c for c in cols_bajas if c in X_2025_MM_raw.columns]
+)
+
+# 1.4.bis. Forzar que la base de testeo tenga exactamente los regresores
+# de la base de entrenamiento, mas la informalidad rezagada:
+"""
+Garantiza la comparabilidad columna a columna entre ambos modelos. Si
+alguna dummy estuviera ausente en 2025_MM se agrega en cero (la
+categoria no se observa en el panel), y cualquier columna sobrante que
+el Modelo 1 desconoce se descarta, salvo el regresor de Maurizio &
+Monsalvo.
+"""
+
+REZAGO = 'informal_2024_Informal'
+
+columnas_modelo = X_2024_raw.columns.tolist()
+columnas_MM     = columnas_modelo + ([REZAGO] if REZAGO in X_2025_MM_raw.columns else [])
+
+agregadas   = [c for c in columnas_modelo if c not in X_2025_MM_raw.columns]
+descartadas = [c for c in X_2025_MM_raw.columns if c not in columnas_MM]
+
+print("Columnas agregadas en cero a 2025_MM:", agregadas)
+print("Columnas descartadas de 2025_MM:",      descartadas)
+
+X_2025_MM_raw = X_2025_MM_raw.reindex(columns = columnas_MM, fill_value = 0)
+
+print("Regresores Modelo 1:", X_2024_raw.shape[1])
+print("Regresores Modelo 2:", X_2025_MM_raw.shape[1])
 
 # 1.5. Estandarizar las variables continuas (media 0, desv. std 1):
 
@@ -1013,6 +1165,11 @@ las continuas para mantener la interpretabilidad de las dummies.
 El scaler de 2024 se ajusta ('fit') sobre 2024 y se aplica ('transform')
 sobre 2025_MM, de manera que la escala de referencia sea siempre la
 muestra de entrenamiento.
+
+Se conserva ademas una copia de las continuas SIN estandarizar
+(X_2025_MM_originales), necesaria para que el eje horizontal del grafico
+de B.2 pueda expresarse en unidades interpretables (anos de edad, anos
+de educacion) en lugar de desvios estandar.
 """
 
 continuas = [
@@ -1022,15 +1179,29 @@ continuas = [
     'cant_ocupaciones_ad',
 ]
 
+cols_cont = [c for c in continuas if c in X_2024_raw.columns]
+print("Variables continuas estandarizadas:", cols_cont)
+
+# Copia previa a la transformacion (para B.2):
+X_2024_originales    = X_2024_raw[cols_cont].copy()
+X_2025_MM_originales = X_2025_MM_raw[cols_cont].copy()
+
 scaler = StandardScaler()
 
-cols_cont_2024 = [c for c in continuas if c in X_2024_raw.columns]
 X_2024_raw = X_2024_raw.copy()
-X_2024_raw[cols_cont_2024] = scaler.fit_transform(X_2024_raw[cols_cont_2024])
+X_2024_raw[cols_cont] = scaler.fit_transform(X_2024_raw[cols_cont])
 
-cols_cont_MM = [c for c in continuas if c in X_2025_MM_raw.columns]
 X_2025_MM_raw = X_2025_MM_raw.copy()
-X_2025_MM_raw[cols_cont_MM] = scaler.transform(X_2025_MM_raw[cols_cont_MM])
+X_2025_MM_raw[cols_cont] = scaler.transform(X_2025_MM_raw[cols_cont])
+
+# Diccionario media/desvio por variable, para revertir la
+# estandarizacion cuando haga falta:
+params_scaler = pd.DataFrame({
+    'media':  scaler.mean_,
+    'desvio': scaler.scale_
+}, index = cols_cont)
+
+print(params_scaler.round(3))
 
 # 1.6. Diagnostico de rango final:
 from numpy.linalg import matrix_rank
@@ -1046,7 +1217,7 @@ print("Rango / columnas Modelo 2:",
 # 1.7. Estimacion del Modelo 1 (2024):
 modelo_2024 = sm.Logit(y_2024_final, X_2024_final).fit(
     method  = 'bfgs',
-#   maxiter = 1000,
+    maxiter = 1000,
     disp    = True
 )
 print(modelo_2024.summary())
@@ -1054,10 +1225,22 @@ print(modelo_2024.summary())
 # 1.8. Estimacion del Modelo 2 (2025_MM, especificacion Maurizio & Monsalvo):
 modelo_2025_MM = sm.Logit(y_2025_MM_final, X_2025_MM_final).fit(
     method  = 'bfgs',
-#   maxiter = 1000,
+    maxiter = 1000,
     disp    = True
 )
 print(modelo_2025_MM.summary())
+
+# 1.8.bis. Diagnostico de ajuste:
+"""
+Control de sanidad tras la correccion del alineamiento. Un pseudo-R2
+cercano a cero en el Modelo 1, con decenas de regresores y varios miles
+de observaciones, indicaria que el vector objetivo no se corresponde
+fila a fila con la matriz de caracteristicas.
+"""
+print("Pseudo-R2 Modelo 1:", round(modelo_2024.prsquared, 4),
+      "| LLR p-valor:", round(modelo_2024.llr_pvalue, 6))
+print("Pseudo-R2 Modelo 2:", round(modelo_2025_MM.prsquared, 4),
+      "| LLR p-valor:", round(modelo_2025_MM.llr_pvalue, 6))
 
 #%% 1.9. Tabla de coeficientes, EMP, errores estandar y odds-ratios
 #        (Consigna B.1 items i, ii y iii):
@@ -1073,6 +1256,8 @@ Para cada modelo se extraen de statsmodels:
   (get_margeff() con method='dydx', at='mean' calcula el efecto en
   la media de X; se usa at='overall' para el promedio sobre toda la
   distribucion observada, que es el EMP propiamente dicho).
+- p-valores, que permiten leer la significatividad directamente en la
+  tabla sin recurrir al summary completo.
 """
 
 # 1.9.1. Funcion auxiliar para construir la tabla de un modelo:
@@ -1083,15 +1268,27 @@ def tabla_logit(modelo, nombre_modelo):
     # (get_margeff no calcula efecto marginal de la constante):
     vars_sin_const = [v for v in modelo.params.index if v != 'const']
 
-    coef  = modelo.params[vars_sin_const]
-    bse   = modelo.bse[vars_sin_const]
-    odds  = np.exp(coef)
-    emp   = pd.Series(margeff.margeff,    index = vars_sin_const)
+    coef   = modelo.params[vars_sin_const]
+    bse    = modelo.bse[vars_sin_const]
+    pval   = modelo.pvalues[vars_sin_const]
+    odds   = np.exp(coef)
+    emp    = pd.Series(margeff.margeff,    index = vars_sin_const)
     emp_se = pd.Series(margeff.margeff_se, index = vars_sin_const)
+
+    estrellas = pd.Series(
+        np.select(
+            [pval < 0.01, pval < 0.05, pval < 0.10],
+            ['***', '**', '*'],
+            default = ''
+        ),
+        index = vars_sin_const
+    )
 
     tabla = pd.DataFrame({
         'Coeficiente':    coef,
         'Error estandar': bse,
+        'p-valor':        pval,
+        'Signif.':        estrellas,
         'Odds-ratio':     odds,
         'EMP':            emp,
         'EMP std. error': emp_se,
@@ -1111,9 +1308,476 @@ tabla_conjunta = tabla_m1.join(tabla_m2, how = 'outer').round(4)
 
 print(tabla_conjunta.to_string())
 
-# 1.9.4. Exportar a Excel:
+# 1.9.4. Comparacion focalizada en las variables que pide la consigna:
+"""
+La consigna pregunta si los coeficientes de caracteristicas como edad o
+educacion cambian al introducir el estatus de informalidad rezagado.
+Este extracto aisla esas filas para facilitar la comparacion directa.
+"""
+vars_interes = ['edad', 'edad2', 'educ', 'sexo_Masculino', REZAGO]
+vars_presentes = [v for v in vars_interes if v in tabla_conjunta.index]
+
+print(tabla_conjunta.loc[vars_presentes].to_string())
+
+# 1.9.5. Exportar a Excel:
 tabla_conjunta.to_excel(
     "tabla_coef_logit.xlsx",
     sheet_name   = "Coef_EMP_OR",
     float_format = "%.4f"
 )
+
+
+#%% 2. Visualizacion de la probabilidad predicha (Consigna B.2):
+
+"""
+Se grafica P(Y25 = 1 | ocupados_X_2025_MM) contra la edad, siguiendo el
+estilo de la ilustracion de clase: en lugar de una nube de puntos
+individuales, se trazan curvas suaves construidas manteniendo TODAS las
+demas caracteristicas fijas en su valor promedio en la base de testeo y
+haciendo variar unicamente la edad a lo largo de su rango observado.
+Esto aisla el efecto de la caracteristica seleccionada, que es lo que
+permite interpretar la curva.
+
+Se eligio la edad porque en la tabla de B.1 'edad' y 'edad2' resultan
+significativas al 1% en ambos modelos, con signos opuestos (-1.24 y
++1.21 en el Modelo 1), lo que implica una relacion convexa en forma de U:
+probabilidad alta de informalidad al inicio de la vida laboral, minimo
+en las edades centrales y repunte hacia el final. La educacion, aunque
+tambien significativa, genera una curva monotona menos ilustrativa.
+
+Panel izquierdo  -> Modelo 1, que es lo que pide literalmente la
+                    consigna ('coeficientes estimados de 2024' aplicados
+                    a los datos de testeo).
+Panel derecho    -> Modelo 2, que al incluir la informalidad rezagada
+                    permite trazar dos curvas y visualizar la
+                    persistencia del estatus informal, nucleo de la
+                    extension de Maurizio & Monsalvo (2021).
+"""
+
+import matplotlib.pyplot as plt
+
+# 2.1. Manejo consistente de 'edad' y 'edad2':
+"""
+Al construir la grilla NO alcanza con mover 'edad': 'edad2' es su
+cuadrado y debe recorrer la grilla en forma simultanea. Si se dejara
+'edad2' fija en su media mientras 'edad' varia, la curva resultante no
+correspondería a ningun individuo posible y el termino cuadratico
+quedaria neutralizado.
+
+Ambas variables estan estandarizadas (paso 1.5), de modo que la grilla
+se construye en anos, se eleva al cuadrado en niveles y recien despues
+se estandariza cada componente con su propia media y desvio.
+"""
+
+media_edad   = params_scaler.loc['edad',  'media']
+desvio_edad  = params_scaler.loc['edad',  'desvio']
+media_edad2  = params_scaler.loc['edad2', 'media']
+desvio_edad2 = params_scaler.loc['edad2', 'desvio']
+
+# Rango observado de edad en la base de testeo (en anos):
+edad_anos_obs = X_2025_MM_originales['edad']
+#edad_min = int(np.floor(edad_anos_obs.min()))
+#edad_max = int(np.ceil(edad_anos_obs.max()))
+edad_min = 18
+edad_max = 75
+
+print("Rango de edad en la base de testeo:", edad_min, "a", edad_max, "anos")
+
+grilla_edad  = np.arange(edad_min, edad_max + 1, 1)
+grilla_edad_std  = (grilla_edad         - media_edad)  / desvio_edad
+grilla_edad2_std = (grilla_edad ** 2    - media_edad2) / desvio_edad2
+
+# 2.2. Alinear la base de testeo con los regresores de cada modelo:
+"""
+El Modelo 1 desconoce 'informal_2024_Informal', por lo que al predecir
+sobre la base MM esa columna debe descartarse. El reindex contra el
+indice de coeficientes de cada modelo garantiza que las columnas entren
+en el orden correcto.
+"""
+
+X_test_m1 = X_2025_MM_final.reindex(
+    columns = modelo_2024.params.index, fill_value = 0
+)
+X_test_m2 = X_2025_MM_final.reindex(
+    columns = modelo_2025_MM.params.index, fill_value = 0
+)
+
+print("Regresores Modelo 1 ausentes en testeo:",
+      [c for c in modelo_2024.params.index if c not in X_2025_MM_final.columns])
+print("Regresores Modelo 2 ausentes en testeo:",
+      [c for c in modelo_2025_MM.params.index if c not in X_2025_MM_final.columns])
+
+# 2.3. Funcion que construye la curva ceteris paribus:
+def curva_edad(modelo, X_test, valor_rezago = None):
+    """
+    Replica el perfil promedio de la base de testeo tantas veces como
+    puntos tiene la grilla, sustituye edad y edad2 por sus valores de
+    grilla y (opcionalmente) fija el estatus de informalidad rezagado.
+    """
+    perfil = pd.concat(
+        [X_test.mean().to_frame().T] * len(grilla_edad),
+        ignore_index = True
+    )
+    perfil['const'] = 1.0
+    perfil['edad']  = grilla_edad_std
+    perfil['edad2'] = grilla_edad2_std
+
+    if valor_rezago is not None and REZAGO in perfil.columns:
+        perfil[REZAGO] = valor_rezago
+
+    return modelo.predict(perfil[modelo.params.index])
+
+p_m1            = curva_edad(modelo_2024,    X_test_m1)
+p_m2_formal     = curva_edad(modelo_2025_MM, X_test_m2, valor_rezago = 0)
+p_m2_informal   = curva_edad(modelo_2025_MM, X_test_m2, valor_rezago = 1)
+
+# 2.4. Tasa de informalidad observada por tramo de edad (referencia empirica):
+"""
+Se agrupa en tramos quinquenales en lugar de anos simples para evitar
+el ruido de celdas con pocos casos.
+"""
+
+obs = pd.DataFrame({
+    'edad':      edad_anos_obs.values,
+    'observado': y_2025_MM_final.values
+})
+obs['tramo'] = (obs['edad'] // 5) * 5 + 2.5
+
+tasa_obs = obs.groupby('tramo').agg(
+    tasa = ('observado', 'mean'),
+    n    = ('observado', 'size')
+).reset_index()
+tasa_obs = tasa_obs[tasa_obs['n'] >= 30]
+
+print(tasa_obs.round(4).to_string(index = False))
+
+# 2.5. Edad que minimiza la probabilidad predicha (vertice de la U):
+edad_minima_m1 = grilla_edad[np.argmin(p_m1)]
+print("Edad de minima probabilidad predicha (Modelo 1):", edad_minima_m1, "anos")
+
+# 2.6. Grafico:
+fig, axes = plt.subplots(1, 2, figsize = (13, 5.5), sharey = True)
+
+# --- Panel izquierdo: Modelo 1 ---
+ax = axes[0]
+
+ax.plot(grilla_edad, p_m1,
+        color = '#C44E52', linewidth = 3,
+        label = 'Probabilidad predicha (Modelo 1)')
+
+ax.plot(tasa_obs['tramo'], tasa_obs['tasa'],
+        color = 'grey', linewidth = 1.4, linestyle = '--',
+        marker = 'o', markersize = 4,
+        label = 'Tasa observada 2025')
+
+ax.axvline(edad_minima_m1, color = '#C44E52',
+           linewidth = 0.9, linestyle = ':', alpha = 0.7)
+
+ax.set_title('Modelo 1: coeficientes de 2024\naplicados a ocupados_X_2025_MM',
+             fontsize = 11)
+ax.set_xlabel('Edad (años)')
+ax.set_ylabel('P(informal en 2025 = 1)')
+ax.legend(frameon = False, fontsize = 9)
+ax.spines[['top', 'right']].set_visible(False)
+ax.grid(axis = 'y', alpha = 0.25, linewidth = 0.6)
+
+# --- Panel derecho: Modelo 2 ---
+ax = axes[1]
+
+ax.plot(grilla_edad, p_m2_informal,
+        color = '#C44E52', linewidth = 3,
+        label = 'Informal en 2024')
+
+ax.plot(grilla_edad, p_m2_formal,
+        color = '#4C72B0', linewidth = 3,
+        label = 'Formal en 2024')
+
+ax.plot(tasa_obs['tramo'], tasa_obs['tasa'],
+        color = 'grey', linewidth = 1.4, linestyle = '--',
+        marker = 'o', markersize = 4,
+        label = 'Tasa observada 2025')
+
+ax.set_title('Modelo 2: especificacion Maurizio & Monsalvo\n(con informalidad rezagada)',
+             fontsize = 11)
+ax.set_xlabel('Edad (anos)')
+ax.legend(frameon = False, fontsize = 9)
+ax.spines[['top', 'right']].set_visible(False)
+ax.grid(axis = 'y', alpha = 0.25, linewidth = 0.6)
+
+axes[0].set_ylim(0, 1)
+axes[0].set_xlim(edad_min, edad_max)
+
+fig.suptitle(
+    'Probabilidad predicha de ser informal en 2025 segun la edad\n'
+    '(resto de las caracteristicas fijadas en su media muestral)',
+    fontsize = 12.5, y = 1.02
+)
+
+plt.tight_layout()
+plt.savefig("B2_prob_informalidad_edad.png", dpi = 300, bbox_inches = 'tight')
+plt.show()
+
+# 2.7. Valores puntuales para citar en el informe:
+resumen_curvas = pd.DataFrame({
+    'edad':                 grilla_edad,
+    'p_modelo1':            p_m1.values,
+    'p_m2_formal_previo':   p_m2_formal.values,
+    'p_m2_informal_previo': p_m2_informal.values,
+})
+resumen_curvas['brecha_persistencia'] = (
+    resumen_curvas['p_m2_informal_previo'] - resumen_curvas['p_m2_formal_previo']
+)
+
+print(resumen_curvas[resumen_curvas['edad'].isin([20, 30, 40, 50, 60, 70])]
+      .round(4).to_string(index = False))
+
+resumen_curvas.to_excel(
+    "B2_curvas_probabilidad.xlsx",
+    sheet_name   = "Curvas",
+    float_format = "%.4f",
+    index        = False
+)
+
+#%%
+# =============================================================================
+# PARTE C: DESEMPENO DEL MODELO Y PREDICCION FUERA DE LA MUESTRA
+# =============================================================================
+
+#%% 1. Matriz de confusion, curva ROC y metricas (Consigna C.1):
+
+"""
+Ambos modelos se evaluan sobre la MISMA muestra de testeo
+(ocupados_X_2025_MM) y contra el MISMO vector observado
+(y_2025_MM_final), de modo que las metricas sean directamente
+comparables.
+
+Advertencia metodologica que conviene explicitar en el informe:
+
+- El Modelo 1 se estimo con datos de 2024 y aca se aplica a 2025, por
+  lo que sus metricas son genuinamente FUERA DE MUESTRA.
+- El Modelo 2 se estimo sobre esta misma base 2025_MM, por lo que sus
+  metricas son DENTRO DE MUESTRA y estan mecanicamente infladas. La
+  comparacion entre ambos no es del todo simetrica: parte de la ventaja
+  del Modelo 2 proviene de haber visto estos datos durante la
+  estimacion, y no solo del poder predictivo de la informalidad
+  rezagada.
+"""
+
+from sklearn.metrics import (
+    confusion_matrix, roc_curve, roc_auc_score,
+    accuracy_score, precision_score, recall_score, f1_score,
+    balanced_accuracy_score
+)
+import matplotlib.pyplot as plt
+
+# 1.1. Probabilidades predichas de cada modelo sobre la base de testeo:
+prob_m1 = modelo_2024.predict(X_test_m1)
+prob_m2 = modelo_2025_MM.predict(X_test_m2)
+
+y_obs = y_2025_MM_final
+
+print("Observaciones evaluadas:", len(y_obs))
+print("Tasa de informalidad observada en 2025:", round(y_obs.mean(), 4))
+print("Probabilidad predicha media - Modelo 1:", round(prob_m1.mean(), 4))
+print("Probabilidad predicha media - Modelo 2:", round(prob_m2.mean(), 4))
+
+# 1.2. Clasificacion con umbral p > 0.5:
+UMBRAL = 0.5
+
+pred_m1 = (prob_m1 > UMBRAL).astype(int)
+pred_m2 = (prob_m2 > UMBRAL).astype(int)
+
+print("Informales predichos - Modelo 1:", int(pred_m1.sum()),
+      "de", len(y_obs), "| observados:", int(y_obs.sum()))
+print("Informales predichos - Modelo 2:", int(pred_m2.sum()),
+      "de", len(y_obs), "| observados:", int(y_obs.sum()))
+
+# 1.3. Matrices de confusion:
+"""
+Convencion de sklearn (labels = [0, 1]):
+
+                     Predicho Formal   Predicho Informal
+    Real Formal            TN                 FP
+    Real Informal          FN                 TP
+
+En este problema:
+- FP (error tipo I): se clasifica como informal a un trabajador formal.
+  El programa de formalizacion asignaria recursos a quien no los
+  necesita.
+- FN (error tipo II): se clasifica como formal a un trabajador informal.
+  El programa NO alcanza a un trabajador precarizado que si deberia
+  recibir el beneficio.
+"""
+
+def mostrar_confusion(y_real, y_pred, nombre):
+    cm = confusion_matrix(y_real, y_pred, labels = [0, 1])
+    tn, fp, fn, tp = cm.ravel()
+
+    tabla = pd.DataFrame(
+        cm,
+        index   = ['Real: Formal', 'Real: Informal'],
+        columns = ['Pred: Formal', 'Pred: Informal']
+    )
+
+    print(f"--- Matriz de confusion: {nombre} (umbral {UMBRAL}) ---")
+    print(tabla)
+    print(f"VN = {tn} | FP = {fp} | FN = {fn} | VP = {tp}")
+    return cm, tabla
+
+cm_m1, tabla_cm_m1 = mostrar_confusion(y_obs, pred_m1, 'Modelo 1 (2024 -> 2025)')
+cm_m2, tabla_cm_m2 = mostrar_confusion(y_obs, pred_m2, 'Modelo 2 (Maurizio & Monsalvo)')
+
+# 1.4. Metricas de desempeno:
+"""
+Se reportan, ademas de la exactitud (accuracy):
+
+- Sensibilidad / Recall: proporcion de informales reales que el modelo
+  logra identificar. Es la metrica central para el problema de politica
+  publica de C.2, porque mide la cobertura del programa.
+- Precision: de los clasificados como informales, cuantos lo son
+  efectivamente. Mide la eficiencia en el uso de recursos escasos.
+- Especificidad: proporcion de formales correctamente clasificados.
+- F1: media armonica entre precision y recall.
+- Exactitud balanceada: promedio de sensibilidad y especificidad, mas
+  informativa que la accuracy cuando las clases estan desbalanceadas.
+- AUC-ROC: capacidad de ordenamiento del modelo, independiente del
+  umbral elegido.
+
+La exactitud simple es enganosa en este problema: con una tasa de
+informalidad baja, un clasificador que prediga 'formal' para todos
+alcanza una accuracy alta sin identificar a un solo informal. Por eso
+se la acompana siempre de sensibilidad y AUC.
+"""
+
+def metricas_modelo(y_real, y_pred, y_prob, nombre):
+    cm = confusion_matrix(y_real, y_pred, labels = [0, 1])
+    tn, fp, fn, tp = cm.ravel()
+
+    especificidad = tn / (tn + fp) if (tn + fp) > 0 else np.nan
+
+    return {
+        'Modelo':                nombre,
+        'Exactitud':             accuracy_score(y_real, y_pred),
+        'Sensibilidad (recall)': recall_score(y_real, y_pred, zero_division = 0),
+        'Especificidad':         especificidad,
+        'Precision':             precision_score(y_real, y_pred, zero_division = 0),
+        'F1':                    f1_score(y_real, y_pred, zero_division = 0),
+        'Exactitud balanceada':  balanced_accuracy_score(y_real, y_pred),
+        'AUC-ROC':               roc_auc_score(y_real, y_prob),
+        'VN': tn, 'FP': fp, 'FN': fn, 'VP': tp
+    }
+
+tabla_metricas = pd.DataFrame([
+    metricas_modelo(y_obs, pred_m1, prob_m1, 'Modelo 1 (2024 -> 2025)'),
+    metricas_modelo(y_obs, pred_m2, prob_m2, 'Modelo 2 (MM, en muestra)')
+]).set_index('Modelo')
+
+print(tabla_metricas.round(4).to_string())
+
+tabla_metricas.to_excel(
+    "C1_metricas_desempeno.xlsx",
+    sheet_name   = "Metricas",
+    float_format = "%.4f"
+)
+
+# 1.5. Curvas ROC:
+fpr_m1, tpr_m1, umbrales_m1 = roc_curve(y_obs, prob_m1)
+fpr_m2, tpr_m2, umbrales_m2 = roc_curve(y_obs, prob_m2)
+
+auc_m1 = roc_auc_score(y_obs, prob_m1)
+auc_m2 = roc_auc_score(y_obs, prob_m2)
+
+# 1.6. Grafico combinado: matrices de confusion + curva ROC:
+fig = plt.figure(figsize = (14, 4.8))
+
+# --- Matriz de confusion Modelo 1 ---
+ax1 = fig.add_subplot(1, 3, 1)
+ax1.imshow(cm_m1, cmap = 'Blues', alpha = 0.75)
+for i in range(2):
+    for j in range(2):
+        ax1.text(j, i, f"{cm_m1[i, j]:,}", ha = 'center', va = 'center',
+                 fontsize = 13, fontweight = 'bold',
+                 color = 'white' if cm_m1[i, j] > cm_m1.max() / 2 else 'black')
+ax1.set_xticks([0, 1]); ax1.set_xticklabels(['Pred. Formal', 'Pred. Informal'])
+ax1.set_yticks([0, 1]); ax1.set_yticklabels(['Formal', 'Informal'])
+ax1.set_title(f'Modelo 1 (2024 → 2025)\numbral p > {UMBRAL}', fontsize = 11)
+ax1.set_ylabel('Observado')
+
+# --- Matriz de confusion Modelo 2 ---
+ax2 = fig.add_subplot(1, 3, 2)
+ax2.imshow(cm_m2, cmap = 'Reds', alpha = 0.75)
+for i in range(2):
+    for j in range(2):
+        ax2.text(j, i, f"{cm_m2[i, j]:,}", ha = 'center', va = 'center',
+                 fontsize = 13, fontweight = 'bold',
+                 color = 'white' if cm_m2[i, j] > cm_m2.max() / 2 else 'black')
+ax2.set_xticks([0, 1]); ax2.set_xticklabels(['Pred. Formal', 'Pred. Informal'])
+ax2.set_yticks([0, 1]); ax2.set_yticklabels(['Formal', 'Informal'])
+ax2.set_title(f'Modelo 2 (Maurizio & Monsalvo)\numbral p > {UMBRAL}', fontsize = 11)
+
+# --- Curvas ROC ---
+ax3 = fig.add_subplot(1, 3, 3)
+ax3.plot(fpr_m1, tpr_m1, color = '#4C72B0', linewidth = 2.4,
+         label = f'Modelo 1 (AUC = {auc_m1:.3f})')
+ax3.plot(fpr_m2, tpr_m2, color = '#C44E52', linewidth = 2.4,
+         label = f'Modelo 2 (AUC = {auc_m2:.3f})')
+ax3.plot([0, 1], [0, 1], color = 'grey', linewidth = 1,
+         linestyle = '--', label = 'Clasificador aleatorio')
+
+ax3.set_xlabel('1 - Especificidad (tasa de falsos positivos)')
+ax3.set_ylabel('Sensibilidad (tasa de verdaderos positivos)')
+ax3.set_title('Curva ROC', fontsize = 11)
+ax3.legend(frameon = False, fontsize = 9, loc = 'lower right')
+ax3.spines[['top', 'right']].set_visible(False)
+ax3.grid(alpha = 0.25, linewidth = 0.6)
+ax3.set_xlim(0, 1); ax3.set_ylim(0, 1.02)
+
+plt.tight_layout()
+plt.savefig("C1_confusion_y_roc.png", dpi = 300, bbox_inches = 'tight')
+plt.show()
+
+#%% 1.7. Sensibilidad del desempeno al umbral de clasificacion:
+
+"""
+Insumo directo para la discusion de C.2. Con una tasa de informalidad
+baja, el umbral 0.5 es muy conservador: casi nadie supera esa
+probabilidad, de modo que el modelo clasifica como formal a la mayoria
+y la sensibilidad resulta pobre pese a una exactitud alta. Bajar el
+umbral aumenta la cobertura del programa (mas informales detectados) a
+costa de mayor filtracion (mas formales incorrectamente incluidos).
+
+La tabla siguiente cuantifica ese trade-off y permite justificar con
+numeros la eleccion de umbral que se recomiende a la Secretaria de
+Trabajo.
+"""
+
+umbrales = [0.10, 0.15, 0.20, 0.25, 0.30, 0.40, 0.50]
+
+filas_umbral = []
+for u in umbrales:
+    for nombre, prob in [('Modelo 1', prob_m1), ('Modelo 2', prob_m2)]:
+        pred_u = (prob > u).astype(int)
+        cm_u = confusion_matrix(y_obs, pred_u, labels = [0, 1])
+        tn, fp, fn, tp = cm_u.ravel()
+        filas_umbral.append({
+            'Umbral':        u,
+            'Modelo':        nombre,
+            'Sensibilidad':  recall_score(y_obs, pred_u, zero_division = 0),
+            'Precision':     precision_score(y_obs, pred_u, zero_division = 0),
+            'Exactitud':     accuracy_score(y_obs, pred_u),
+            'FN (no alcanzados)': fn,
+            'FP (filtracion)':    fp,
+        })
+
+tabla_umbrales = pd.DataFrame(filas_umbral)
+
+print(tabla_umbrales.round(4).to_string(index = False))
+
+tabla_umbrales.to_excel(
+    "C1_sensibilidad_umbral.xlsx",
+    sheet_name   = "Umbrales",
+    float_format = "%.4f",
+    index        = False
+)
+
+
