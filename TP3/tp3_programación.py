@@ -23,8 +23,8 @@ from kmodes.kmodes import KModes
 print("Paquetes cargados correctamente.")
 
 # Seteo de directorio:
-os.chdir(r"C:\Users\gmpas\OneDrive\Escritorio\Seminario Programación\TP3")
-# os.chdir(r"/Volumes/ADATA HD330/Maestría Economía Aplicada UBA/Taller de programación/Trabajos prácticos/Grupo_3_Trabajos_practicos/TP3")
+# os.chdir(r"C:\Users\gmpas\OneDrive\Escritorio\Seminario Programación\TP3")
+os.chdir(r"/Volumes/ADATA HD330/Maestría Economía Aplicada UBA/Taller de programación/Trabajos prácticos/Grupo_3_Trabajos_practicos/Grupo_3_Trabajos_practicos/TP3")
 
 print(os.getcwd())
 
